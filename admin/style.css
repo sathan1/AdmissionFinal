@@ -1,0 +1,161 @@
+/* General Body Styling */
+body {
+    font-family: 'Arial', sans-serif;
+    background-color: #f8f9fa;
+    color: #343a40;
+    margin: 0;
+    padding: 0;
+}
+
+h2, h3 {
+    color: #495057;
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+/* Table Enhancements */
+.table-container {
+    overflow-x: auto;
+    box-shadow: 0px 6px 16px rgba(0, 0, 0, 0.15); /* Glare/shadow effect */
+    border-radius: 12px;
+    background-color: #ffffff;
+    padding: 16px;
+    margin-top: 20px;
+    border: 3px solid #343a40; /* Outer thick border for the table container */
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    border: 2px solid black; /* Thick black border for the entire table */
+}
+
+table th, table td {
+    padding: 12px;
+    text-align: left;
+    border: 2px solid black; /* Standard cell borders */
+}
+
+table th {
+    background-color: #e9ecef;
+    font-weight: 600;
+    text-align: center;
+}
+
+table td:not(:last-child), 
+table th:not(:last-child) {
+    border-right: 4px solid #adb5bd; /* Thicker centerline for clarity */
+}
+
+table td {
+    vertical-align: middle;
+}
+
+/* Zebra Striping for Table Rows */
+table tbody tr:nth-child(even) {
+    background-color: #f1f3f5; /* Light gray for alternating rows */
+}
+
+table tbody tr:hover {
+    background-color: #e9ecef; /* Highlight row on hover */
+}
+
+/* Badge Styling */
+.badge {
+    font-size: 0.85em;
+    padding: 5px 10px;
+    border-radius: 12px;
+}
+
+.badge-success {
+    background-color: #198754;
+    color: #ffffff;
+}
+
+.badge-danger {
+    background-color: #dc3545;
+    color: #ffffff;
+}
+
+.badge-warning {
+    background-color: #ffc107;
+    color: #212529;
+}
+
+/* Forms and Buttons */
+.form-control {
+    border-radius: 8px;
+    border: 2px solid #ced4da;
+    padding: 10px;
+    transition: border-color 0.3s ease-in-out, box-shadow 0.3s ease-in-out;
+}
+
+.form-control:focus {
+    border-color: #80bdff;
+    box-shadow: 0px 0px 8px rgba(0, 123, 255, 0.25);
+}
+
+.btn {
+    border-radius: 8px;
+    padding: 10px 20px;
+    font-size: 1em;
+}
+
+.btn-primary {
+    background-color: #0d6efd;
+    border: none;
+    transition: background-color 0.3s ease-in-out, transform 0.2s ease-in-out;
+}
+
+.btn-primary:hover {
+    background-color: #0b5ed7;
+    transform: scale(1.05);
+}
+
+.btn-secondary {
+    background-color: #6c757d;
+    border: none;
+    transition: background-color 0.3s ease-in-out, transform 0.2s ease-in-out;
+}
+
+.btn-secondary:hover {
+    background-color: #5a6268;
+    transform: scale(1.05);
+}
+
+/* Center Alignment for Forms */
+form {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+form label {
+    font-weight: 600;
+    margin-bottom: 5px;
+}
+
+form select {
+    width: 100%;
+    max-width: 300px;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .table-container {
+        padding: 10px;
+    }
+
+    table th, table td {
+        padding: 8px;
+    }
+
+    .form-control, .btn {
+        width: 100%;
+    }
+
+    .btn {
+        margin-bottom: 10px;
+    }
+}

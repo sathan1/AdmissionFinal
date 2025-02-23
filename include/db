@@ -1,0 +1,66 @@
+CREATE TABLE `academic` (
+  `academicId` int(11) NOT NULL,
+  `academicUserId` int(11) NOT NULL,
+  `school_name` text NOT NULL,
+  `tamilMarks` int(11) DEFAULT NULL,
+  `englishMarks` int(11) NOT NULL,
+  `mathsMarks` int(11) NOT NULL,
+  `scienceMarks` int(11) NOT NULL,
+  `socialScienceMarks` int(11) NOT NULL,
+  `otherLanguageMarks` int(11) DEFAULT NULL,
+  `totalMarks` int(11) GENERATED ALWAYS AS (coalesce(`tamilMarks`,0) + `englishMarks` + `mathsMarks` + `scienceMarks` + `socialScienceMarks` + coalesce(`otherLanguageMarks`,0)) STORED
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE `document` (
+  `documentId` int(11) NOT NULL,
+  `documentUserId` int(11) NOT NULL,
+  `documentType` varchar(255) NOT NULL,
+  `documentName` varchar(255) NOT NULL,
+  `uploadedAt` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE `preference` (
+  `preferenceId` int(11) NOT NULL,
+  `preferenceUserId` int(11) NOT NULL,
+  `preferenceOrder` int(11) NOT NULL,
+  `preferenceDepartment` varchar(255) NOT NULL,
+  `preferenceStatus` enum('pending','approved','rejected') DEFAULT 'pending'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE `studentdetails` (
+  `studentId` int(11) NOT NULL,
+  `studentUserId` int(11) NOT NULL,
+  `studentFirstName` varchar(200) NOT NULL,
+  `studentLastName` varchar(200) NOT NULL,
+  `studentFatherName` varchar(200) NOT NULL,
+  `studentMotherName` varchar(200) NOT NULL,
+  `studentDateOfBirth` date NOT NULL,
+  `studentGender` enum('male','female','other') NOT NULL,
+  `studentCaste` varchar(100) NOT NULL,
+  `studentPhoneNumber` varchar(15) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+ALTER TABLE `academic`
+  ADD PRIMARY KEY (`academicId`),
+  ADD KEY `academicUserId` (`academicUserId`);
+
+--
+-- Indexes for table `document`
+--
+ALTER TABLE `document`
+  ADD PRIMARY KEY (`documentId`),
+  ADD KEY `documentUserId` (`documentUserId`);
+
+--
+-- Indexes for table `preference`
+--
+ALTER TABLE `preference`
+  ADD PRIMARY KEY (`preferenceId`),
+  ADD KEY `preferenceUserId` (`preferenceUserId`);
+
+--
+-- Indexes for table `studentdetails`
+--
+ALTER TABLE `studentdetails`
+  ADD PRIMARY KEY (`studentId`),
+  ADD KEY `studentUserId` (`studentUserId`);
