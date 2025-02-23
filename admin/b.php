@@ -2,61 +2,78 @@
 include '../include/db.php';
 session_start();
 
-// Declare use statements for export
+// Declare use statements at the top for export
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use PhpOffice\PhpSpreadsheet\Style\Border;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 
 if (!isset($_SESSION['userId'])) {
-    header("Location: ../auth/login.php");
+    header("Location: ../index.php");
     exit();
 }
 
 $adminId = $_SESSION['userId'];
 
-// Fetch all users with the required details for Form A
+// Fetch unique department names with department_status
+$departmentQuery = "SELECT DISTINCT CONCAT(preferenceDepartment, ' (', department_status, ')') AS departmentFull 
+                    FROM preference";
+$departmentResult = $conn->query($departmentQuery);
+$departments = [];
+while ($dept = $departmentResult->fetch_assoc()) {
+    $departments[] = $dept['departmentFull'];
+}
+
+// Get the selected department from the dropdown filter
+$selectedDepartment = isset($_GET['department']) ? $_GET['department'] : 'All Departments';
+
+// Fetch students based on the selected department
 $query = "
-SELECT sd.studentUserId, sd.studentFirstName, sd.studentLastName, sd.studentPhoneNumber, sd.studentGender, sd.studentCaste, sd.studentDateOfBirth,
-       a.school_name, a.yearOfPassing, a.tamilMarks, a.englishMarks, a.mathsMarks, a.scienceMarks, a.socialScienceMarks, a.otherLanguageMarks, a.totalMarks,
-       p.preferenceId, p.preferenceDepartment, p.preferenceStatus
+SELECT sd.studentUserId, sd.studentFirstName, sd.studentLastName, sd.studentPhoneNumber, sd.studentGender, 
+       sd.studentCaste, sd.studentDateOfBirth, a.school_name, a.yearOfPassing, a.tamilMarks, a.englishMarks, 
+       a.mathsMarks, a.scienceMarks, a.socialScienceMarks, a.otherLanguageMarks, a.totalMarks, 
+       p.preferenceId, p.preferenceDepartment, p.preferenceStatus, p.department_status
 FROM studentdetails sd
 LEFT JOIN academic a ON sd.studentUserId = a.academicUserId
 LEFT JOIN preference p ON sd.studentUserId = p.preferenceUserId
-ORDER BY sd.studentUserId, p.preferenceOrder ASC";
+WHERE p.preferenceStatus = 'success'";
 
-$allUsersResult = $conn->query($query);
+if ($selectedDepartment !== 'All Departments') {
+    $query .= " AND CONCAT(p.preferenceDepartment, ' (', p.department_status, ')') = ?";
+}
+$query .= " ORDER BY sd.studentUserId, p.preferenceOrder ASC LIMIT 30";
+
+$stmt = $conn->prepare($query);
+if ($selectedDepartment !== 'All Departments') {
+    $stmt->bind_param('s', $selectedDepartment);
+}
+$stmt->execute();
+$allUsersResult = $stmt->get_result();
 
 $studentsData = [];
 $serialNumber = 1;
 while ($row = $allUsersResult->fetch_assoc()) {
-    if (!isset($studentsData[$row['studentUserId']])) {
-        $studentsData[$row['studentUserId']] = [
-            'sno' => $serialNumber++,
-            'studentFirstName' => $row['studentFirstName'],
-            'studentLastName' => $row['studentLastName'],
-            'sex' => $row['studentGender'],
-            'community' => $row['studentCaste'],
-            'dob' => $row['studentDateOfBirth'],
-            'qualify' => 'SSLC',
-            'yr_pass' => $row['yearOfPassing'],
-            'tamilMarks' => $row['tamilMarks'],
-            'englishMarks' => $row['englishMarks'],
-            'mathsMarks' => $row['mathsMarks'],
-            'scienceMarks' => $row['scienceMarks'],
-            'socialScienceMarks' => $row['socialScienceMarks'],
-            'otherLanguageMarks' => $row['otherLanguageMarks'],
-            'totalMarks' => $row['totalMarks'],
-            'average' => $row['totalMarks'] / 5,
-            'status' => 'Applied',
-            'department1' => $row['preferenceDepartment'],
-            'department2' => '',
-        ];
-    } else {
-        if (empty($studentsData[$row['studentUserId']]['department2'])) {
-            $studentsData[$row['studentUserId']]['department2'] = $row['preferenceDepartment'];
-        }
-    }
+    $studentsData[] = [
+        'sno' => $serialNumber++,
+        'studentFirstName' => $row['studentFirstName'],
+        'studentLastName' => $row['studentLastName'],
+        'sex' => $row['studentGender'],
+        'community' => $row['studentCaste'],
+        'dob' => $row['studentDateOfBirth'],
+        'qualify' => 'SSLC',
+        'yr_pass' => $row['yearOfPassing'],
+        'tamilMarks' => $row['tamilMarks'],
+        'englishMarks' => $row['englishMarks'],
+        'mathsMarks' => $row['mathsMarks'],
+        'scienceMarks' => $row['scienceMarks'],
+        'socialScienceMarks' => $row['socialScienceMarks'],
+        'otherLanguageMarks' => $row['otherLanguageMarks'],
+        'totalMarks' => $row['totalMarks'],
+        'average' => $row['totalMarks'] / 5,
+        'department' => $row['preferenceDepartment'],
+        'allocated' => $row['department_status'],
+        'status' => 'Admitted',
+    ];
 }
 
 // Handle export
@@ -73,7 +90,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
 
         $pdf->SetCreator(PDF_CREATOR);
         $pdf->SetAuthor('NPTC');
-        $pdf->SetTitle('Merit List Report - Form A');
+        $pdf->SetTitle('Merit List Report - Form B');
         $pdf->SetMargins(10, 10, 10);
         $pdf->SetAutoPageBreak(true, 10);
 
@@ -89,20 +106,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
         $pdf->SetFont('helvetica', 'B', 14);
         $pdf->Cell(0, 10, 'ADMISSION TO FIRST YEAR (REGULAR) DIPLOMA COURSES: 2024 - 2025', 0, 1, 'C');
         $pdf->SetFont('helvetica', '', 10);
-        $pdf->Cell(0, 5, 'FORM A – (Merit list prepared after receiving all applications from prospective candidates before due date)', 0, 1, 'C');
+        $pdf->Cell(0, 5, 'FORM B – (Merit list of admitted students)', 0, 1, 'C');
         $pdf->Cell(0, 5, 'INSTITUTION CODE: 212', 0, 1, 'C');
         $pdf->Cell(0, 5, 'INSTITUTION NAME: NACHIMUTHU POLYTECHNIC COLLEGE (AUT), COIMBATORE', 0, 1, 'C');
         $pdf->Ln(5);
 
         $html = '<table border="1" cellpadding="5"><thead><tr style="background-color: #2980b9; color: #ffffff;">';
-        $columns = [
-            'S.No', 'Name', 'Sex', 'Community', 'DOB', 'Qualify', 'Yr Pass', 
-            'Tam', 'Eng', 'Maths', 'Sci', 'Soc', 'Other', 'Total', '%', 'Status', 'Dept 1', 'Dept 2'
-        ];
-        $colWidths = [6, 25, 6, 15, 12, 12, 10, 8, 8, 8, 8, 8, 8, 10, 8, 10, 15, 15]; // 18 columns
-        $totalWidth = array_sum($colWidths);
+        $columns = ['S.No', 'NAME', 'SEX', 'COMMUNITY', 'DOB', 'QUALIFY', 'YR PASS', 'TAM', 'ENG', 'MATHS', 'SCI', 'SOC', 'OTHER', 'TOTAL', '%', 'DEPT', 'ALLOC', 'STATUS'];
+        $widths = [6, 25, 6, 15, 12, 12, 10, 8, 8, 8, 8, 8, 8, 10, 8, 12, 12, 10]; // 18 columns, total 186 units
+        $totalWidth = array_sum($widths);
         $scaleFactor = 277 / $totalWidth;
-        $scaledWidths = array_map(fn($w) => $w * $scaleFactor, $colWidths);
+        $scaledWidths = array_map(fn($w) => $w * $scaleFactor, $widths);
 
         foreach ($columns as $idx => $col) {
             $html .= "<th width=\"" . $scaledWidths[$idx] . "mm\" align=\"center\">$col</th>";
@@ -126,9 +140,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
             $html .= '<td width="' . $scaledWidths[12] . 'mm" align="center">' . htmlspecialchars($row['otherLanguageMarks']) . '</td>';
             $html .= '<td width="' . $scaledWidths[13] . 'mm" align="center">' . htmlspecialchars($row['totalMarks']) . '</td>';
             $html .= '<td width="' . $scaledWidths[14] . 'mm" align="center">' . number_format($row['average'], 2) . '</td>';
-            $html .= '<td width="' . $scaledWidths[15] . 'mm" align="center">' . htmlspecialchars($row['status']) . '</td>';
-            $html .= '<td width="' . $scaledWidths[16] . 'mm" align="center">' . htmlspecialchars($row['department1']) . '</td>';
-            $html .= '<td width="' . $scaledWidths[17] . 'mm" align="center">' . htmlspecialchars($row['department2']) . '</td>';
+            $html .= '<td width="' . $scaledWidths[15] . 'mm" align="center">' . htmlspecialchars($row['department']) . '</td>';
+            $html .= '<td width="' . $scaledWidths[16] . 'mm" align="center">' . htmlspecialchars($row['allocated']) . '</td>';
+            $html .= '<td width="' . $scaledWidths[17] . 'mm" align="center">' . htmlspecialchars($row['status']) . '</td>';
             $html .= '</tr>';
         }
         $html .= '</tbody></table>';
@@ -156,7 +170,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
             }
         }
 
-        $pdf->Output('merit_list_form_a.pdf', 'D');
+        $pdf->Output('merit_list_form_b.pdf', 'D');
         exit;
     } elseif ($format === 'excel') {
         $spreadsheet = new Spreadsheet();
@@ -168,7 +182,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
         $sheet->getPageMargins()->setLeft(10 / 25.4);
 
         $sheet->setCellValue('A1', 'ADMISSION TO FIRST YEAR (REGULAR) DIPLOMA COURSES: 2024 - 2025');
-        $sheet->setCellValue('A2', 'FORM A – (Merit list prepared after receiving all applications from prospective candidates before due date)');
+        $sheet->setCellValue('A2', 'FORM B – (Merit list of admitted students)');
         $sheet->setCellValue('A3', 'INSTITUTION CODE: 212');
         $sheet->setCellValue('A4', 'INSTITUTION NAME: NACHIMUTHU POLYTECHNIC COLLEGE (AUT), COIMBATORE');
         $sheet->mergeCells('A1:R1');
@@ -186,11 +200,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
         $drawing->setOffsetX(10);
         $drawing->setWorksheet($sheet);
 
-        $columns = [
-            'S.No', 'Name', 'Sex', 'Community', 'DOB', 'Qualify', 'Yr Pass', 
-            'Tam', 'Eng', 'Maths', 'Sci', 'Soc', 'Other', 'Total', '%', 'Status', 'Dept 1', 'Dept 2'
-        ];
-        $colWidths = [6, 25, 6, 15, 12, 12, 10, 8, 8, 8, 8, 8, 8, 10, 8, 10, 15, 15]; // 18 columns
+        $columns = ['S.No', 'NAME', 'SEX', 'COMMUNITY', 'DOB', 'QUALIFY', 'YR PASS', 'TAM', 'ENG', 'MATHS', 'SCI', 'SOC', 'OTHER', 'TOTAL', '%', 'DEPT', 'ALLOC', 'STATUS'];
+        $colWidths = [6, 25, 6, 15, 12, 12, 10, 8, 8, 8, 8, 8, 8, 10, 8, 12, 12, 10]; // 18 columns
         $col = 'A';
         foreach ($columns as $idx => $column) {
             $sheet->setCellValue($col . '6', $column);
@@ -206,9 +217,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
             'font' => [
                 'color' => ['rgb' => 'FFFFFF'],
                 'bold' => true,
-            ],
-            'alignment' => [
-                'horizontal' => Alignment::HORIZONTAL_CENTER,
             ],
         ]);
 
@@ -229,9 +237,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
             $sheet->setCellValue('M' . $rowNum, $row['otherLanguageMarks']);
             $sheet->setCellValue('N' . $rowNum, $row['totalMarks']);
             $sheet->setCellValue('O' . $rowNum, number_format($row['average'], 2));
-            $sheet->setCellValue('P' . $rowNum, $row['status']);
-            $sheet->setCellValue('Q' . $rowNum, $row['department1']);
-            $sheet->setCellValue('R' . $rowNum, $row['department2']);
+            $sheet->setCellValue('P' . $rowNum, $row['department']);
+            $sheet->setCellValue('Q' . $rowNum, $row['allocated']);
+            $sheet->setCellValue('R' . $rowNum, $row['status']);
             $rowNum++;
         }
 
@@ -276,7 +284,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
 
         $writer = new Xlsx($spreadsheet);
         header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-        header('Content-Disposition: attachment;filename="merit_list_form_a.xlsx"');
+        header('Content-Disposition: attachment;filename="merit_list_form_b.xlsx"');
         header('Cache-Control: max-age=0');
         $writer->save('php://output');
         exit;
@@ -289,7 +297,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Form A</title>
+    <title>Form B</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         /* General Reset */
@@ -376,6 +384,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
             background-color: #c0392b;
         }
 
+        /* Buttons */
+        .btn-primary {
+            background-color: #3498db;
+            border: none;
+            font-weight: 600;
+            padding: 10px 15px;
+            border-radius: 5px;
+            color: #ffffff;
+            transition: background-color 0.3s ease, transform 0.2s ease;
+        }
+
+        .btn-primary:hover {
+            background-color: #2980b9;
+            transform: translateY(-2px);
+        }
+
+        .btn {
+            font-size: 0.95rem;
+            padding: 10px 15px;
+            border-radius: 5px;
+        }
+
         /* Table Styles */
         .table {
             margin-top: 20px;
@@ -415,21 +445,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
             border-bottom: 1px solid #ddd;
         }
 
-        /* Floating Export Button */
-        .export-btn {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            padding: 10px 20px;
-            background-color: #3498db;
-            color: white;
-            border-radius: 5px;
-            cursor: pointer;
-            transition: background-color 0.3s ease;
+        /* Form Styling */
+        form {
+            margin-top: 20px;
         }
 
-        .export-btn:hover {
-            background-color: #2980b9;
+        form .form-control {
+            border-radius: 5px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            transition: border-color 0.3s ease;
+        }
+
+        form .form-control:focus {
+            border-color: #3498db;
+            box-shadow: 0 0 5px rgba(52, 152, 219, 0.5);
+        }
+
+        form .btn {
+            font-size: 0.9rem;
+            font-weight: 600;
+            padding: 10px 20px;
+        }
+
+        /* Dropdown */
+        select.form-select {
+            max-width: 300px;
+            margin: 10px auto;
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
         }
 
         /* Responsive Design */
@@ -450,6 +495,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
                 font-size: 0.9rem;
             }
 
+            .btn {
+                font-size: 0.8rem;
+                padding: 8px 12px;
+            }
+
+            .header {
+                padding: 10px 15px;
+            }
+
+            /* Stack table columns on small screens */
             .table thead {
                 display: none;
             }
@@ -512,66 +567,98 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
 
 <div class="content">
     <div class="container mt-4">
-        <h2 class="text-center">NPTC</h2>
-        <p class="text-center">Merit List Report</p>
-        <p class="text-center">Form A</p>
-
-        <h3>Merit List (Prepared After Applications)</h3>
-        <div class="table-container">
-            <table class="table table-bordered table-striped">
-                <thead>
-                    <tr>
-                        <th>S.No</th>
-                        <th>Name</th>
-                        <th>Sex</th>
-                        <th>Community</th>
-                        <th>DOB</th>
-                        <th>Qualification</th>
-                        <th>Year of Passing</th>
-                        <th>Tamil</th>
-                        <th>English</th>
-                        <th>Maths</th>
-                        <th>Science</th>
-                        <th>Social Science</th>
-                        <th>Other Marks</th>
-                        <th>Total</th>
-                        <th>Average</th>
-                        <th>Department 1</th>
-                        <th>Department 2</th>
-                        <th>Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ($studentsData as $row): ?>
-                        <tr>
-                            <td data-label="S.No"><?= htmlspecialchars($row['sno']) ?></td>
-                            <td data-label="Name"><?= htmlspecialchars($row['studentFirstName'] . ' ' . $row['studentLastName']) ?></td>
-                            <td data-label="Sex"><?= htmlspecialchars($row['sex']) ?></td>
-                            <td data-label="Community"><?= htmlspecialchars($row['community']) ?></td>
-                            <td data-label="DOB"><?= htmlspecialchars($row['dob']) ?></td>
-                            <td data-label="Qualification"><?= htmlspecialchars($row['qualify']) ?></td>
-                            <td data-label="Year of Passing"><?= htmlspecialchars($row['yr_pass']) ?></td>
-                            <td data-label="Tamil"><?= htmlspecialchars($row['tamilMarks']) ?></td>
-                            <td data-label="English"><?= htmlspecialchars($row['englishMarks']) ?></td>
-                            <td data-label="Maths"><?= htmlspecialchars($row['mathsMarks']) ?></td>
-                            <td data-label="Science"><?= htmlspecialchars($row['scienceMarks']) ?></td>
-                            <td data-label="Social Science"><?= htmlspecialchars($row['socialScienceMarks']) ?></td>
-                            <td data-label="Other Marks"><?= htmlspecialchars($row['otherLanguageMarks']) ?></td>
-                            <td data-label="Total"><?= htmlspecialchars($row['totalMarks']) ?></td>
-                            <td data-label="Average"><?= number_format($row['average'], 2) ?></td>
-                            <td data-label="Department 1"><?= htmlspecialchars($row['department1']) ?></td>
-                            <td data-label="Department 2"><?= htmlspecialchars($row['department2']) ?></td>
-                            <td data-label="Status"><?= htmlspecialchars($row['status']) ?></td>
-                        </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
+        <!-- Header Section -->
+        <div class="row mb-4">
+            <div class="col text-center">
+                <h2>NPTC</h2>
+                <p>Merit List Report</p>
+                <p>Form B</p>
+            </div>
         </div>
+
+        <!-- Filter Section -->
+        <form method="GET" class="mb-4">
+            <div class="row align-items-center">
+                <div class="col-md-4">
+                    <select name="department" class="form-select">
+                        <option value="All Departments" <?= $selectedDepartment === 'All Departments' ? 'selected' : '' ?>>
+                            All Departments
+                        </option>
+                        <?php foreach ($departments as $dept): ?>
+                            <option value="<?= htmlspecialchars($dept) ?>" <?= $selectedDepartment === $dept ? 'selected' : '' ?>>
+                                <?= htmlspecialchars($dept) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <button type="submit" class="btn btn-primary">Filter</button>
+                </div>
+            </div>
+        </form>
+
+        <!-- Table Section -->
+        <h3>Merit List - <?= htmlspecialchars($selectedDepartment) ?> (Admitted Students)</h3>
+        <?php if (count($studentsData) > 0): ?>
+            <p><?= count($studentsData) ?> student(s) found.</p>
+            <div class="table-container">
+                <table class="table table-bordered table-striped">
+                    <thead>
+                        <tr>
+                            <th>S.No</th>
+                            <th>Name</th>
+                            <th>Sex</th>
+                            <th>Community</th>
+                            <th>DOB</th>
+                            <th>Qualification</th>
+                            <th>Year of Passing</th>
+                            <th>Tamil</th>
+                            <th>English</th>
+                            <th>Maths</th>
+                            <th>Science</th>
+                            <th>Social Science</th>
+                            <th>Other Marks</th>
+                            <th>Total</th>
+                            <th>Average</th>
+                            <th>Department</th>
+                            <th>Allocated</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($studentsData as $row): ?>
+                            <tr>
+                                <td data-label="S.No"><?= htmlspecialchars($row['sno']) ?></td>
+                                <td data-label="Name"><?= htmlspecialchars($row['studentFirstName'] . ' ' . $row['studentLastName']) ?></td>
+                                <td data-label="Sex"><?= htmlspecialchars($row['sex']) ?></td>
+                                <td data-label="Community"><?= htmlspecialchars($row['community']) ?></td>
+                                <td data-label="DOB"><?= htmlspecialchars($row['dob']) ?></td>
+                                <td data-label="Qualification"><?= htmlspecialchars($row['qualify']) ?></td>
+                                <td data-label="Year of Passing"><?= htmlspecialchars($row['yr_pass']) ?></td>
+                                <td data-label="Tamil"><?= htmlspecialchars($row['tamilMarks']) ?></td>
+                                <td data-label="English"><?= htmlspecialchars($row['englishMarks']) ?></td>
+                                <td data-label="Maths"><?= htmlspecialchars($row['mathsMarks']) ?></td>
+                                <td data-label="Science"><?= htmlspecialchars($row['scienceMarks']) ?></td>
+                                <td data-label="Social Science"><?= htmlspecialchars($row['socialScienceMarks']) ?></td>
+                                <td data-label="Other Marks"><?= htmlspecialchars($row['otherLanguageMarks']) ?></td>
+                                <td data-label="Total"><?= htmlspecialchars($row['totalMarks']) ?></td>
+                                <td data-label="Average"><?= number_format($row['average'], 2) ?></td>
+                                <td data-label="Department"><?= htmlspecialchars($row['department']) ?></td>
+                                <td data-label="Allocated"><?= htmlspecialchars($row['allocated']) ?></td>
+                                <td data-label="Status"><?= htmlspecialchars($row['status']) ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        <?php else: ?>
+            <p>No results found.</p>
+        <?php endif; ?>
     </div>
 </div>
 
 <!-- Floating Export Button -->
-<div class="export-btn" onclick="showExportModal()">Export</div>
+<div class="export-btn" style="position: fixed; bottom: 20px; right: 20px; padding: 10px 20px; background-color: #3498db; color: white; border-radius: 5px; cursor: pointer;" onclick="showExportModal()">Export</div>
 
 <!-- Export Modal -->
 <div class="modal fade" id="exportModal" tabindex="-1" aria-labelledby="exportModalLabel" aria-hidden="true">

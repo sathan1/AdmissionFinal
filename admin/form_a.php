@@ -458,12 +458,3 @@ include '../header_admin.php';
 </script>
 </body>
 </html>
-
-i mee to add export option this pages table content to iy use foss js pdf option and foss excel option
-if the user click on export button it need to ask pdf or excel with password check box and singnature checkbox
-if the password checkbox click show a input box password 
-if the signatire check box is check first ask number signature in input then n number of signatures name
-pdf structure has 0.75 mm margin in all pdf pages has header in left most has logo ,center has college ,bellow there are three lime decripe about college ,left has logo the hr and footer has page number pattern of page m in page n in it if the signature set then add the signature with space around below the table 
-  use all the column in table fit into landscape page
-  if password set assign a password
-  for excel header once and signature if space round to table width and border cells has data and set password if 
