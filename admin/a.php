@@ -30,12 +30,14 @@ $allUsersResult = $conn->query($query);
 $studentsData = [];
 $serialNumber = 1;
 while ($row = $allUsersResult->fetch_assoc()) {
+    // Simplify gender to M/F
+    $gender = $row['studentGender'] === 'M' ? 'M' : 'F';
     if (!isset($studentsData[$row['studentUserId']])) {
         $studentsData[$row['studentUserId']] = [
             'sno' => $serialNumber++,
             'studentFirstName' => $row['studentFirstName'],
             'studentLastName' => $row['studentLastName'],
-            'sex' => $row['studentGender'],
+            'sex' => $gender,
             'community' => $row['studentCaste'],
             'dob' => $row['studentDateOfBirth'],
             'qualify' => 'SSLC',
@@ -87,62 +89,72 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
         // Add a page
         $pdf->AddPage();
 
-        // Header with logo
-        $pdf->Image('./logo.png', 267, 10, 20, 20); // Right side logo (A4 width 297mm - 20mm logo - 10mm margin)
-        $pdf->SetFont('helvetica', 'B', 12);
-        $pdf->Cell(0, 10, 'NPTC', 0, 1, 'C');
-        $pdf->SetFont('helvetica', '', 10);
-        $pdf->Cell(0, 5, 'Merit List Report - Form A', 0, 1, 'C');
-        $pdf->Cell(0, 5, 'Address: 123 College Road, City', 0, 1, 'C');
-        $pdf->Cell(0, 5, 'Phone: +123-456-7890', 0, 1, 'C');
-        $pdf->Cell(0, 5, 'Email: info@nptc.edu', 0, 1, 'C');
-        $pdf->Line(10, 35, 287, 35); // Horizontal line (A4 width 297mm - 10mm margins)
+        // Add black border around the page
+        $pdf->SetLineStyle(array('width' => 0.5, 'color' => array(0, 0, 0))); // #000 border
+        $pdf->Rect(10, 10, 277, 190); // Rectangle for A4 landscape (297mm - 20mm margins, 210mm - 20mm margins)
 
-        // Table
-        $html = '<table border="1" cellpadding="5"><thead><tr>';
-        $columns = ['S.No', 'Name', 'Sex', 'Community', 'DOB', 'Qualification', 'Year of Passing', 'Tamil', 'English', 'Maths', 'Science', 'Social Science', 'Other Marks', 'Total', 'Average', 'Department 1', 'Department 2', 'Status'];
-        foreach ($columns as $col) {
-            $html .= "<th>$col</th>";
+        // Header with logo on left and centered text
+        $pdf->Image('./logo.png', 12, 12, 20, 20); // Adjusted inside border
+        $pdf->SetFont('helvetica', 'B', 14);
+        $pdf->Cell(0, 10, 'ADMISSION TO FIRST YEAR (REGULAR) DIPLOMA COURSES: 2024 - 2025', 0, 1, 'C');
+        $pdf->SetFont('helvetica', '', 10);
+        $pdf->Cell(0, 5, 'FORM A – (Merit list prepared after receiving all applications from prospective candidates before due date)', 0, 1, 'C');
+        $pdf->Cell(0, 5, 'INSTITUTION CODE: 212', 0, 1, 'C');
+        $pdf->Cell(0, 5, 'INSTITUTION NAME: NACHIMUTHU POLYTECHNIC COLLEGE (AUT), COIMBATORE', 0, 1, 'C');
+        $pdf->Ln(5); // Space after header
+
+        // Table with 16 columns and professional widths (total 277mm, matching Excel proportions)
+        $html = '<table border="1" cellpadding="5"><thead><tr style="background-color: #ffffff; color: #000000;">';
+        $columns = ['S.No', 'NAME', 'SEX', 'COMMUNITY', 'DOB', 'QUALIFY', 'YR PASS', 'TAM', 'ENG', 'MATHS', 'SCI', 'SOC', 'OTHER', 'TOTAL', '%', 'STATUS'];
+        $widths = [6, 25, 6, 15, 12, 12, 10, 8, 8, 8, 8, 8, 8, 10, 8, 10]; // Proportional to Excel's 162 units, scaled to 277mm
+        $totalWidth = array_sum($widths);
+        $scaleFactor = 277 / $totalWidth; // Scale to fit A4 landscape (297mm - 20mm margins)
+        $scaledWidths = array_map(fn($w) => $w * $scaleFactor, $widths);
+
+        foreach ($columns as $idx => $col) {
+            $html .= "<th width=\"" . $scaledWidths[$idx] . "mm\" align=\"center\">$col</th>";
         }
         $html .= '</tr></thead><tbody>';
+
+        // Table data
         foreach ($studentsData as $row) {
             $html .= '<tr>';
-            $html .= '<td>' . htmlspecialchars($row['sno']) . '</td>';
-            $html .= '<td>' . htmlspecialchars($row['studentFirstName'] . ' ' . $row['studentLastName']) . '</td>';
-            $html .= '<td>' . htmlspecialchars($row['sex']) . '</td>';
-            $html .= '<td>' . htmlspecialchars($row['community']) . '</td>';
-            $html .= '<td>' . htmlspecialchars($row['dob']) . '</td>';
-            $html .= '<td>' . htmlspecialchars($row['qualify']) . '</td>';
-            $html .= '<td>' . htmlspecialchars($row['yr_pass']) . '</td>';
-            $html .= '<td>' . htmlspecialchars($row['tamilMarks']) . '</td>';
-            $html .= '<td>' . htmlspecialchars($row['englishMarks']) . '</td>';
-            $html .= '<td>' . htmlspecialchars($row['mathsMarks']) . '</td>';
-            $html .= '<td>' . htmlspecialchars($row['scienceMarks']) . '</td>';
-            $html .= '<td>' . htmlspecialchars($row['socialScienceMarks']) . '</td>';
-            $html .= '<td>' . htmlspecialchars($row['otherLanguageMarks']) . '</td>';
-            $html .= '<td>' . htmlspecialchars($row['totalMarks']) . '</td>';
-            $html .= '<td>' . number_format($row['average'], 2) . '</td>';
-            $html .= '<td>' . htmlspecialchars($row['department1']) . '</td>';
-            $html .= '<td>' . htmlspecialchars($row['department2']) . '</td>';
-            $html .= '<td>' . htmlspecialchars($row['status']) . '</td>';
+            $html .= '<td width="' . $scaledWidths[0] . 'mm" align="center">' . htmlspecialchars($row['sno']) . '</td>';
+            $html .= '<td width="' . $scaledWidths[1] . 'mm" align="center">' . htmlspecialchars($row['studentFirstName'] . ' ' . $row['studentLastName']) . '</td>';
+            $html .= '<td width="' . $scaledWidths[2] . 'mm" align="center">' . htmlspecialchars($row['sex']) . '</td>';
+            $html .= '<td width="' . $scaledWidths[3] . 'mm" align="center">' . htmlspecialchars($row['community']) . '</td>';
+            $html .= '<td width="' . $scaledWidths[4] . 'mm" align="center">' . htmlspecialchars($row['dob']) . '</td>';
+            $html .= '<td width="' . $scaledWidths[5] . 'mm" align="center">' . htmlspecialchars($row['qualify']) . '</td>';
+            $html .= '<td width="' . $scaledWidths[6] . 'mm" align="center">' . htmlspecialchars($row['yr_pass']) . '</td>';
+            $html .= '<td width="' . $scaledWidths[7] . 'mm" align="center">' . htmlspecialchars($row['tamilMarks']) . '</td>';
+            $html .= '<td width="' . $scaledWidths[8] . 'mm" align="center">' . htmlspecialchars($row['englishMarks']) . '</td>';
+            $html .= '<td width="' . $scaledWidths[9] . 'mm" align="center">' . htmlspecialchars($row['mathsMarks']) . '</td>';
+            $html .= '<td width="' . $scaledWidths[10] . 'mm" align="center">' . htmlspecialchars($row['scienceMarks']) . '</td>';
+            $html .= '<td width="' . $scaledWidths[11] . 'mm" align="center">' . htmlspecialchars($row['socialScienceMarks']) . '</td>';
+            $html .= '<td width="' . $scaledWidths[12] . 'mm" align="center">' . htmlspecialchars($row['otherLanguageMarks']) . '</td>';
+            $html .= '<td width="' . $scaledWidths[13] . 'mm" align="center">' . htmlspecialchars($row['totalMarks']) . '</td>';
+            $html .= '<td width="' . $scaledWidths[14] . 'mm" align="center">' . number_format($row['average'], 2) . '</td>';
+            $html .= '<td width="' . $scaledWidths[15] . 'mm" align="center">' . htmlspecialchars($row['status']) . '</td>';
             $html .= '</tr>';
         }
         $html .= '</tbody></table>';
 
         $pdf->writeHTML($html, true, false, true, false, '');
 
-        // Signatures (spanning table width)
+        // Add two blank lines (matching Excel)
+        $pdf->Ln(10);
+
+        // Signatures (spanning table width, matching Excel positioning)
         if (!empty($signatures)) {
-            $pdf->Ln(10);
-            $tableWidth = 277; // A4 landscape width 297mm - 20mm margins
             $sigCount = count($signatures);
             $sigPositions = [];
+            $tableWidth = 277; // A4 landscape width minus margins
             if ($sigCount === 1) {
-                $sigPositions = [287 - 20]; // Rightmost
+                $sigPositions = [$tableWidth - 20]; // Rightmost (adjusted for signature width)
             } elseif ($sigCount === 2) {
-                $sigPositions = [10, 287 - 20]; // Leftmost and Rightmost
+                $sigPositions = [10, $tableWidth - 20]; // Leftmost and Rightmost
             } elseif ($sigCount >= 3) {
-                $sigPositions = [10, 148.5, 287 - 20]; // Leftmost, Middle, Rightmost
+                $sigPositions = [10, $tableWidth / 2 - 20, $tableWidth - 20]; // Leftmost, Middle, Rightmost
             }
 
             foreach ($signatures as $idx => $sig) {
@@ -153,7 +165,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
             }
         }
 
-        // Output PDF (no footer)
+        // Output PDF
         $pdf->Output('merit_list_form_a.pdf', 'D');
         exit;
     } elseif ($format === 'excel') {
@@ -167,39 +179,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
         $sheet->getPageMargins()->setBottom(10 / 25.4);
         $sheet->getPageMargins()->setLeft(10 / 25.4);
 
-        // Header with logo and centered text
-        $sheet->setCellValue('A1', 'NPTC');
-        $sheet->setCellValue('A2', 'Merit List Report - Form A');
-        $sheet->setCellValue('A3', 'Address: 123 College Road, City');
-        $sheet->setCellValue('A4', 'Phone: +123-456-7890');
-        $sheet->setCellValue('A5', 'Email: info@nptc.edu');
-        $sheet->mergeCells('A1:R1');
-        $sheet->mergeCells('A2:R2');
-        $sheet->mergeCells('A3:R3');
-        $sheet->mergeCells('A4:R4');
-        $sheet->mergeCells('A5:R5');
+        // Header with logo on left and centered text
+        $sheet->setCellValue('A1', 'ADMISSION TO FIRST YEAR (REGULAR) DIPLOMA COURSES: 2024 - 2025');
+        $sheet->setCellValue('A2', 'FORM A – (Merit list prepared after receiving all applications from prospective candidates before due date)');
+        $sheet->setCellValue('A3', 'INSTITUTION CODE: 212');
+        $sheet->setCellValue('A4', 'INSTITUTION NAME: NACHIMUTHU POLYTECHNIC COLLEGE (AUT), COIMBATORE');
+        $sheet->mergeCells('A1:P1');
+        $sheet->mergeCells('A2:P2');
+        $sheet->mergeCells('A3:P3');
+        $sheet->mergeCells('A4:P4');
 
         // Center align header
-        $sheet->getStyle('A1:R5')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+        $sheet->getStyle('A1:P4')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
 
-        // Add logo to right side (R1)
+        // Add logo to left side (A1)
         $drawing = new \PhpOffice\PhpSpreadsheet\Worksheet\Drawing();
         $drawing->setPath('./logo.png'); // Logo path
-        $drawing->setCoordinates('R1');
+        $drawing->setCoordinates('A1');
         $drawing->setWidth(50);
         $drawing->setHeight(50);
+        $drawing->setOffsetX(10); // Adjust position slightly
         $drawing->setWorksheet($sheet);
 
-        // Table headers
-        $columns = ['S.No', 'Name', 'Sex', 'Community', 'DOB', 'Qualification', 'Year of Passing', 'Tamil', 'English', 'Maths', 'Science', 'Social Science', 'Other Marks', 'Total', 'Average', 'Department 1', 'Department 2', 'Status'];
+        // Table headers with 16 columns and professional widths
+        $columns = ['S.No', 'NAME', 'SEX', 'COMMUNITY', 'DOB', 'QUALIFY', 'YR PASS', 'TAM', 'ENG', 'MATHS', 'SCI', 'SOC', 'OTHER', 'TOTAL', '%', 'STATUS'];
+        $colWidths = [6, 25, 6, 15, 12, 12, 10, 8, 8, 8, 8, 8, 8, 10, 8, 10]; // Total = 162 units
         $col = 'A';
-        foreach ($columns as $column) {
-            $sheet->setCellValue($col . '7', $column);
+        foreach ($columns as $idx => $column) {
+            $sheet->setCellValue($col . '6', $column);
+            $sheet->getColumnDimension($col)->setWidth($colWidths[$idx]);
             $col++;
         }
 
-        // Table data
-        $rowNum = 8;
+        // Style header with white background and black text
+        $sheet->getStyle('A6:P6')->applyFromArray([
+            'fill' => [
+                'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
+                'startColor' => ['rgb' => 'FFFFFF'],
+            ],
+            'font' => [
+                'color' => ['rgb' => '000000'],
+                'bold' => true,
+            ],
+        ]);
+
+        // Table data with matching widths
+        $rowNum = 7;
         foreach ($studentsData as $row) {
             $sheet->setCellValue('A' . $rowNum, $row['sno']);
             $sheet->setCellValue('B' . $rowNum, $row['studentFirstName'] . ' ' . $row['studentLastName']);
@@ -216,9 +241,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
             $sheet->setCellValue('M' . $rowNum, $row['otherLanguageMarks']);
             $sheet->setCellValue('N' . $rowNum, $row['totalMarks']);
             $sheet->setCellValue('O' . $rowNum, number_format($row['average'], 2));
-            $sheet->setCellValue('P' . $rowNum, $row['department1']);
-            $sheet->setCellValue('Q' . $rowNum, $row['department2']);
-            $sheet->setCellValue('R' . $rowNum, $row['status']);
+            $sheet->setCellValue('P' . $rowNum, $row['status']);
             $rowNum++;
         }
 
@@ -230,7 +253,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
                 ],
             ],
         ];
-        $sheet->getStyle('A7:R' . ($rowNum - 1))->applyFromArray($styleArray);
+        $sheet->getStyle('A6:P' . ($rowNum - 1))->applyFromArray($styleArray);
 
         // Add two blank rows
         $rowNum += 2;
@@ -240,11 +263,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
             $sigCount = count($signatures);
             $sigPositions = [];
             if ($sigCount === 1) {
-                $sigPositions = ['R']; // Rightmost (Column 18)
+                $sigPositions = ['P']; // Rightmost (Column 16)
             } elseif ($sigCount === 2) {
-                $sigPositions = ['B', 'R']; // Leftmost and Rightmost (Columns 2 and 18)
+                $sigPositions = ['B', 'P']; // Leftmost and Rightmost (Columns 2 and 16)
             } elseif ($sigCount >= 3) {
-                $sigPositions = ['B', 'I', 'R']; // Leftmost, Middle, Rightmost (Columns 2, 9, 18)
+                $sigPositions = ['B', 'I', 'P']; // Leftmost, Middle, Rightmost (Columns 2, 9, 16)
             }
 
             foreach ($signatures as $idx => $sig) {
@@ -253,6 +276,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
                 }
             }
         }
+
+        // Add black border around the entire content area
+        $lastRow = $rowNum; // Last row including signatures
+        $borderStyle = [
+            'borders' => [
+                'outline' => [
+                    'borderStyle' => Border::BORDER_MEDIUM,
+                    'color' => ['rgb' => '000000'], // #000 border
+                ],
+            ],
+        ];
+        $sheet->getStyle('A1:P' . $lastRow)->applyFromArray($borderStyle);
 
         // Output Excel (no password for Excel, controlled via UI)
         $writer = new Xlsx($spreadsheet);
@@ -369,12 +404,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
         }
 
         .table thead th {
-            background-color: #2980b9;
-            color: #ffffff;
+            background-color: #ffffff;
+            color: #000000;
             text-align: center;
             font-weight: 700;
             padding: 15px;
-            border-bottom: 2px solid #1c5980;
+            border-bottom: 2px solid #ddd;
         }
 
         .table tbody tr {
@@ -396,6 +431,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
             border-bottom: 1px solid #ddd;
         }
 
+        /* Professional Column Widths for 16 Columns (Headers and Records) */
+        .col-sno { width: 4%; }
+        .col-name { width: 14%; }
+        .col-sex { width: 4%; }
+        .col-community { width: 9%; }
+        .col-dob { width: 7%; }
+        .col-qualify { width: 7%; }
+        .col-yrpass { width: 6%; }
+        .col-tamil { width: 5%; }
+        .col-english { width: 5%; }
+        .col-maths { width: 5%; }
+        .col-science { width: 5%; }
+        .col-social { width: 5%; }
+        .col-other { width: 5%; }
+        .col-total { width: 6%; }
+        .col-average { width: 6%; }
+        .col-status { width: 6%; }
+
         /* Responsive Design */
         @media (max-width: 768px) {
             .sidebar {
@@ -412,6 +465,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
 
             .table {
                 font-size: 0.9rem;
+            }
+
+            /* Stack columns on small screens */
+            .table thead {
+                display: none;
+            }
+
+            .table tbody tr {
+                display: block;
+                margin-bottom: 10px;
+            }
+
+            .table tbody td {
+                display: block;
+                text-align: right;
+                padding-left: 50%;
+                position: relative;
+            }
+
+            .table tbody td:before {
+                content: attr(data-label);
+                position: absolute;
+                left: 10px;
+                width: 45%;
+                text-align: left;
+                font-weight: bold;
             }
         }
     </style>
@@ -460,47 +539,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
             <table class="table table-bordered table-striped" id="meritTable">
                 <thead>
                     <tr>
-                        <th>S.No</th>
-                        <th>Name</th>
-                        <th>Sex</th>
-                        <th>Community</th>
-                        <th>DOB</th>
-                        <th>Qualification</th>
-                        <th>Year of Passing</th>
-                        <th>Tamil</th>
-                        <th>English</th>
-                        <th>Maths</th>
-                        <th>Science</th>
-                        <th>Social Science</th>
-                        <th>Other Marks</th>
-                        <th>Total</th>
-                        <th>Average</th>
-                        <th>Department 1</th>
-                        <th>Department 2</th>
-                        <th>Status</th>
+                        <th class="col-sno">S.No</th>
+                        <th class="col-name">Name</th>
+                        <th class="col-sex">Sex</th>
+                        <th class="col-community">Community</th>
+                        <th class="col-dob">DOB</th>
+                        <th class="col-qualify">Qualification</th>
+                        <th class="col-yrpass">Year of Passing</th>
+                        <th class="col-tamil">Tamil</th>
+                        <th class="col-english">English</th>
+                        <th class="col-maths">Maths</th>
+                        <th class="col-science">Science</th>
+                        <th class="col-social">Social Science</th>
+                        <th class="col-other">Other Marks</th>
+                        <th class="col-total">Total</th>
+                        <th class="col-average">Average</th>
+                        <th class="col-status">Status</th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php foreach ($studentsData as $row): ?>
                         <tr>
-                            <td><?= htmlspecialchars($row['sno']) ?></td>
-                            <td><?= htmlspecialchars($row['studentFirstName'] . ' ' . $row['studentLastName']) ?></td>
-                            <td><?= htmlspecialchars($row['sex']) ?></td>
-                            <td><?= htmlspecialchars($row['community']) ?></td>
-                            <td><?= htmlspecialchars($row['dob']) ?></td>
-                            <td><?= htmlspecialchars($row['qualify']) ?></td>
-                            <td><?= htmlspecialchars($row['yr_pass']) ?></td>
-                            <td><?= htmlspecialchars($row['tamilMarks']) ?></td>
-                            <td><?= htmlspecialchars($row['englishMarks']) ?></td>
-                            <td><?= htmlspecialchars($row['mathsMarks']) ?></td>
-                            <td><?= htmlspecialchars($row['scienceMarks']) ?></td>
-                            <td><?= htmlspecialchars($row['socialScienceMarks']) ?></td>
-                            <td><?= htmlspecialchars($row['otherLanguageMarks']) ?></td>
-                            <td><?= htmlspecialchars($row['totalMarks']) ?></td>
-                            <td><?= number_format($row['average'], 2) ?></td>
-                            <td><?= htmlspecialchars($row['department1']) ?></td>
-                            <td><?= htmlspecialchars($row['department2']) ?></td>
-                            <td><?= htmlspecialchars($row['status']) ?></td>
+                            <td class="col-sno" data-label="S.No"><?= htmlspecialchars($row['sno']) ?></td>
+                            <td class="col-name" data-label="Name"><?= htmlspecialchars($row['studentFirstName'] . ' ' . $row['studentLastName']) ?></td>
+                            <td class="col-sex" data-label="Sex"><?= htmlspecialchars($row['sex']) ?></td>
+                            <td class="col-community" data-label="Community"><?= htmlspecialchars($row['community']) ?></td>
+                            <td class="col-dob" data-label="DOB"><?= htmlspecialchars($row['dob']) ?></td>
+                            <td class="col-qualify" data-label="Qualification"><?= htmlspecialchars($row['qualify']) ?></td>
+                            <td class="col-yrpass" data-label="Year of Passing"><?= htmlspecialchars($row['yr_pass']) ?></td>
+                            <td class="col-tamil" data-label="Tamil"><?= htmlspecialchars($row['tamilMarks']) ?></td>
+                            <td class="col-english" data-label="English"><?= htmlspecialchars($row['englishMarks']) ?></td>
+                            <td class="col-maths" data-label="Maths"><?= htmlspecialchars($row['mathsMarks']) ?></td>
+                            <td class="col-science" data-label="Science"><?= htmlspecialchars($row['scienceMarks']) ?></td>
+                            <td class="col-social" data-label="Social Science"><?= htmlspecialchars($row['socialScienceMarks']) ?></td>
+                            <td class="col-other" data-label="Other Marks"><?= htmlspecialchars($row['otherLanguageMarks']) ?></td>
+                            <td class="col-total" data-label="Total"><?= htmlspecialchars($row['totalMarks']) ?></td>
+                            <td class="col-average" data-label="Average"><?= number_format($row['average'], 2) ?></td>
+                            <td class="col-status" data-label="Status"><?= htmlspecialchars($row['status']) ?></td>
                         </tr>
                     <?php endforeach; ?>
                 </tbody>
