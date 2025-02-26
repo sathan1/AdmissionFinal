@@ -2,7 +2,7 @@
 include '../include/db.php';
 session_start();
 
-// Declare use statements at the top for export
+// Declare use statements for export
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use PhpOffice\PhpSpreadsheet\Style\Border;
@@ -15,9 +15,10 @@ if (!isset($_SESSION['userId'])) {
 
 $adminId = $_SESSION['userId'];
 
-// Fetch unique department names with department_status
+// Fetch unique department names with department_status (MGMT or GOVT only)
 $departmentQuery = "SELECT DISTINCT CONCAT(preferenceDepartment, ' (', department_status, ')') AS departmentFull 
-                    FROM preference";
+                    FROM preference 
+                    WHERE department_status IN ('MGMT', 'GOVT')";
 $departmentResult = $conn->query($departmentQuery);
 $departments = [];
 while ($dept = $departmentResult->fetch_assoc()) {
@@ -27,7 +28,7 @@ while ($dept = $departmentResult->fetch_assoc()) {
 // Get the selected department from the dropdown filter
 $selectedDepartment = isset($_GET['department']) ? $_GET['department'] : 'All Departments';
 
-// Fetch students based on the selected department
+// Fetch students based on the selected department with MGMT or GOVT statuses only
 $query = "
 SELECT sd.studentUserId, sd.studentFirstName, sd.studentLastName, sd.studentPhoneNumber, sd.studentGender, 
        sd.studentCaste, sd.studentDateOfBirth, a.school_name, a.yearOfPassing, a.tamilMarks, a.englishMarks, 
@@ -36,7 +37,7 @@ SELECT sd.studentUserId, sd.studentFirstName, sd.studentLastName, sd.studentPhon
 FROM studentdetails sd
 LEFT JOIN academic a ON sd.studentUserId = a.academicUserId
 LEFT JOIN preference p ON sd.studentUserId = p.preferenceUserId
-WHERE p.preferenceStatus = 'success'";
+WHERE p.preferenceStatus = 'success' AND p.department_status IN ('MGMT', 'GOVT')";
 
 if ($selectedDepartment !== 'All Departments') {
     $query .= " AND CONCAT(p.preferenceDepartment, ' (', p.department_status, ')') = ?";
@@ -71,12 +72,12 @@ while ($row = $allUsersResult->fetch_assoc()) {
         'totalMarks' => $row['totalMarks'],
         'average' => $row['totalMarks'] / 5,
         'department' => $row['preferenceDepartment'],
-        'allocated' => $row['department_status'],
+        'allocated' => $row['department_status'], // Display MGMT or GOVT directly
         'status' => 'Admitted',
     ];
 }
 
-// Handle export
+// Handle export request
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
     require_once '../vendor/autoload.php';
 
@@ -106,17 +107,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
         $pdf->SetFont('helvetica', 'B', 14);
         $pdf->Cell(0, 10, 'ADMISSION TO FIRST YEAR (REGULAR) DIPLOMA COURSES: 2024 - 2025', 0, 1, 'C');
         $pdf->SetFont('helvetica', '', 10);
-        $pdf->Cell(0, 5, 'FORM B – (Merit list of admitted students)', 0, 1, 'C');
+        $pdf->Cell(0, 5, 'FORM B – (Merit list after Admission)', 0, 1, 'C');
         $pdf->Cell(0, 5, 'INSTITUTION CODE: 212', 0, 1, 'C');
         $pdf->Cell(0, 5, 'INSTITUTION NAME: NACHIMUTHU POLYTECHNIC COLLEGE (AUT), COIMBATORE', 0, 1, 'C');
         $pdf->Ln(5);
 
         $html = '<table border="1" cellpadding="5"><thead><tr style="background-color: #2980b9; color: #ffffff;">';
-        $columns = ['S.No', 'NAME', 'SEX', 'COMMUNITY', 'DOB', 'QUALIFY', 'YR PASS', 'TAM', 'ENG', 'MATHS', 'SCI', 'SOC', 'OTHER', 'TOTAL', '%', 'DEPT', 'ALLOC', 'STATUS'];
-        $widths = [6, 25, 6, 15, 12, 12, 10, 8, 8, 8, 8, 8, 8, 10, 8, 12, 12, 10]; // 18 columns, total 186 units
-        $totalWidth = array_sum($widths);
+        $columns = [
+            'S.No', 'Name', 'Sex', 'Community', 'DOB', 'Qualify', 'Yr Pass', 
+            'Tam', 'Eng', 'Maths', 'Sci', 'Soc', 'Other', 'Total', '%', 'Dept', 'Alloc', 'Status'
+        ];
+        $colWidths = [6, 25, 6, 15, 12, 12, 10, 8, 8, 8, 8, 8, 8, 10, 8, 15, 12, 10]; // 18 columns
+        $totalWidth = array_sum($colWidths);
         $scaleFactor = 277 / $totalWidth;
-        $scaledWidths = array_map(fn($w) => $w * $scaleFactor, $widths);
+        $scaledWidths = array_map(fn($w) => $w * $scaleFactor, $colWidths);
 
         foreach ($columns as $idx => $col) {
             $html .= "<th width=\"" . $scaledWidths[$idx] . "mm\" align=\"center\">$col</th>";
@@ -182,7 +186,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
         $sheet->getPageMargins()->setLeft(10 / 25.4);
 
         $sheet->setCellValue('A1', 'ADMISSION TO FIRST YEAR (REGULAR) DIPLOMA COURSES: 2024 - 2025');
-        $sheet->setCellValue('A2', 'FORM B – (Merit list of admitted students)');
+        $sheet->setCellValue('A2', 'FORM B – (Merit list after Admission)');
         $sheet->setCellValue('A3', 'INSTITUTION CODE: 212');
         $sheet->setCellValue('A4', 'INSTITUTION NAME: NACHIMUTHU POLYTECHNIC COLLEGE (AUT), COIMBATORE');
         $sheet->mergeCells('A1:R1');
@@ -200,8 +204,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
         $drawing->setOffsetX(10);
         $drawing->setWorksheet($sheet);
 
-        $columns = ['S.No', 'NAME', 'SEX', 'COMMUNITY', 'DOB', 'QUALIFY', 'YR PASS', 'TAM', 'ENG', 'MATHS', 'SCI', 'SOC', 'OTHER', 'TOTAL', '%', 'DEPT', 'ALLOC', 'STATUS'];
-        $colWidths = [6, 25, 6, 15, 12, 12, 10, 8, 8, 8, 8, 8, 8, 10, 8, 12, 12, 10]; // 18 columns
+        $columns = [
+            'S.No', 'Name', 'Sex', 'Community', 'DOB', 'Qualify', 'Yr Pass', 
+            'Tam', 'Eng', 'Maths', 'Sci', 'Soc', 'Other', 'Total', '%', 'Dept', 'Alloc', 'Status'
+        ];
+        $colWidths = [6, 25, 6, 15, 12, 12, 10, 8, 8, 8, 8, 8, 8, 10, 8, 15, 12, 10]; // 18 columns
         $col = 'A';
         foreach ($columns as $idx => $column) {
             $sheet->setCellValue($col . '6', $column);
@@ -217,6 +224,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
             'font' => [
                 'color' => ['rgb' => 'FFFFFF'],
                 'bold' => true,
+            ],
+            'alignment' => [
+                'horizontal' => Alignment::HORIZONTAL_CENTER,
             ],
         ]);
 
@@ -299,12 +309,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Form B</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&family=Roboto:wght@400;500&display=swap" rel="stylesheet">
     <style>
+        /* Import Professional Fonts from Google Fonts */
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&family=Roboto:wght@400;500&display=swap');
+
         /* General Reset */
         body {
             font-family: 'Roboto', sans-serif;
-            background-color: #f4f6f9;
-            color: #333;
+            background: linear-gradient(135deg, #f0f4f8, #d9e2ec);
+            color: #2d3748;
             margin: 0;
             padding: 0;
             line-height: 1.6;
@@ -317,431 +331,534 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
             top: 0;
             left: 0;
             width: 250px;
-            background-color: #2c3e50;
-            color: #ecf0f1;
-            border-right: 1px solid #34495e;
-            box-shadow: 2px 0 5px rgba(0, 0, 0, 0.1);
+            background: linear-gradient(145deg, #4a90e2, #357abd);
+            color: #fff;
+            border-right: 1px solid #357abd;
+            box-shadow: 3px 0 15px rgba(0, 0, 0, 0.1);
             overflow-y: auto;
-            padding-top: 70px;
+            padding-top: 80px;
+            transition: transform 0.3s ease;
+        }
+
+        .sidebar h4 {
+            font-family: 'Poppins', sans-serif;
+            font-size: 1.6rem;
+            font-weight: 600;
+            color: #fff;
+            text-align: center;
+            padding: 1.2rem;
+            margin-bottom: 1.5rem;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
         }
 
         .sidebar a {
-            color: #bdc3c7;
+            color: #fff;
             text-decoration: none;
             padding: 15px 20px;
             display: block;
-            border-bottom: 1px solid #34495e;
             font-weight: 500;
-            transition: all 0.3s ease;
+            font-family: 'Roboto', sans-serif;
+            transition: background-color 0.3s ease, padding-left 0.3s ease;
         }
 
         .sidebar a:hover {
-            background-color: #34495e;
-            color: #1abc9c;
+            background-color: rgba(255, 255, 255, 0.2);
+            padding-left: 25px;
         }
 
-        /* Content Area */
-        .content {
-            margin-left: 250px;
-            padding: 30px;
-            margin-top: 70px;
-            background-color: #f4f6f9;
-            min-height: calc(100vh - 70px);
+        /* Mobile Sidebar (Off-Canvas) */
+        .mobile-menu-btn {
+            display: none;
+            position: fixed;
+            top: 75px;
+            left: 10px;
+            z-index: 1100;
+            background: linear-gradient(145deg, #4a90e2, #357abd);
+            border: 1px solid #357abd;
+            padding: 12px 18px;
+            border-radius: 6px;
+            color: #fff;
+            font-size: 1.1rem;
+            font-family: 'Roboto', sans-serif;
+            transition: background-color 0.3s ease, transform 0.3s ease;
+        }
+
+        .mobile-menu-btn:hover {
+            background: linear-gradient(145deg, #357abd, #2a6395);
+            transform: scale(1.05);
+        }
+
+        #mobileMenu {
+            position: fixed;
+            top: 0;
+            left: -250px;
+            width: 250px;
+            height: 100vh;
+            background: linear-gradient(145deg, #4a90e2, #357abd);
+            color: #fff;
+            box-shadow: 3px 0 15px rgba(0, 0, 0, 0.2);
+            z-index: 1050;
+            padding-top: 80px;
+            transition: left 0.3s ease;
+        }
+
+        #mobileMenu.show {
+            left: 0;
+        }
+
+        #mobileMenu a {
+            color: #fff;
+            text-decoration: none;
+            padding: 15px 20px;
+            display: block;
+            font-weight: 500;
+            font-family: 'Roboto', sans-serif;
+            transition: background-color 0.3s ease, padding-left 0.3s ease;
+        }
+
+        #mobileMenu a:hover {
+            background-color: rgba(255, 255, 255, 0.2);
+            padding-left: 25px;
         }
 
         /* Header Styles */
         .header {
-            background-color: #ffffff;
-            border-bottom: 1px solid #ddd;
-            padding: 10px 20px;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            background: linear-gradient(145deg, #4a90e2, #357abd);
+            border-bottom: 1px solid #357abd;
+            padding: 15px 25px;
+            box-shadow: 0 3px 15px rgba(0, 0, 0, 0.1);
             position: fixed;
             width: 100%;
             top: 0;
-            z-index: 1000;
+            z-index: 1100;
             display: flex;
             justify-content: space-between;
             align-items: center;
         }
 
         .header .title {
-            font-size: 24px;
-            color: #2c3e50;
+            font-family: 'Poppins', sans-serif;
+            font-size: 2rem;
             font-weight: 700;
+            color: #fff;
+            text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.2);
         }
 
         .header .logout-btn {
-            color: #ffffff;
-            background-color: #e74c3c;
+            background: linear-gradient(145deg, #e53e3e, #c53030);
             border: none;
-            padding: 10px 15px;
-            font-size: 14px;
-            border-radius: 5px;
-            transition: background-color 0.3s ease;
+            padding: 10px 20px;
+            font-size: 1rem;
+            font-family: 'Roboto', sans-serif;
+            font-weight: 500;
+            border-radius: 6px;
+            color: #fff;
+            transition: background-color 0.3s ease, transform 0.2s ease;
         }
 
         .header .logout-btn:hover {
-            background-color: #c0392b;
+            background: linear-gradient(145deg, #c53030, #9b2c2c);
+            transform: translateY(-2px);
+        }
+
+        /* Content Area */
+        .content {
+            margin-left: 250px;
+            padding: 40px;
+            margin-top: 80px;
+            background: #fff;
+            min-height: calc(100vh - 80px);
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.05);
+            border-radius: 12px;
+        }
+
+        /* Headings */
+        h2, h4 {
+            font-family: 'Poppins', sans-serif;
+            color: #2d3748;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
+            letter-spacing: 0.5px;
+        }
+
+        h2 {
+            font-size: 2rem;
+            background: linear-gradient(90deg, #4a90e2, #63b3ed);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        h4 {
+            font-size: 1.5rem;
+            border-bottom: 2px solid #e2e8f0;
+            padding-bottom: 5px;
         }
 
         /* Buttons */
         .btn-primary {
-            background-color: #3498db;
+            background: linear-gradient(145deg, #68d391, #48bb78);
             border: none;
-            font-weight: 600;
-            padding: 10px 15px;
-            border-radius: 5px;
-            color: #ffffff;
-            transition: background-color 0.3s ease, transform 0.2s ease;
+            font-family: 'Roboto', sans-serif;
+            font-weight: 500;
+            padding: 12px 20px;
+            border-radius: 6px;
+            color: #fff;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            transition: background-color 0.3s ease, transform 0.2s ease, box-shadow 0.3s ease;
         }
 
         .btn-primary:hover {
-            background-color: #2980b9;
+            background: linear-gradient(145deg, #48bb78, #38a169);
             transform: translateY(-2px);
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
         }
 
-        .btn {
-            font-size: 0.95rem;
-            padding: 10px 15px;
-            border-radius: 5px;
-        }
-
-        /* Table Styles */
-        .table {
-            margin-top: 20px;
-            border-collapse: collapse;
+        /* Enhanced Table Styling */
+        .table-wrapper {
             width: 100%;
-            background-color: #ffffff;
-            border-radius: 8px;
+            overflow-x: auto;
+            margin-bottom: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.05);
+            background: #fff;
+        }
+
+        .table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            background: #fff;
+            border-radius: 12px;
             overflow: hidden;
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
         }
 
         .table thead th {
-            background-color: #2980b9;
-            color: #ffffff;
-            text-align: center;
-            font-weight: 700;
-            padding: 15px;
-            border-bottom: 2px solid #1c5980;
+            background: linear-gradient(145deg, #68d391, #48bb78);
+            color: #fff;
+            text-align: left;
+            font-family: 'Poppins', sans-serif;
+            font-weight: 600;
+            padding: 15px 20px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 2px solid #38a169;
         }
 
         .table tbody tr {
-            transition: background-color 0.3s ease;
+            transition: background-color 0.3s ease, transform 0.2s ease;
         }
 
         .table tbody tr:nth-child(even) {
-            background-color: #f9f9f9;
+            background-color: #f7fafc;
         }
 
         .table tbody tr:hover {
-            background-color: #ecf0f1;
+            background-color: #edf2f7;
+            transform: translateY(-2px);
         }
 
         .table tbody td {
-            vertical-align: middle;
-            text-align: center;
-            padding: 12px;
-            border-bottom: 1px solid #ddd;
+            padding: 15px 20px;
+            border-bottom: 1px solid #e2e8f0;
+            font-family: 'Roboto', sans-serif;
+            font-weight: 400;
+            color: #4a5568;
         }
 
-        /* Form Styling */
-        form {
-            margin-top: 20px;
+        .table tbody tr:last-child td {
+            border-bottom: none;
         }
 
-        form .form-control {
-            border-radius: 5px;
-            padding: 10px;
-            border: 1px solid #ccc;
-            transition: border-color 0.3s ease;
+        /* Floating Export Button */
+        .export-btn {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 12px 20px;
+            background: linear-gradient(145deg, #4a90e2, #357abd);
+            color: white;
+            border-radius: 6px;
+            cursor: pointer;
+            font-family: 'Roboto', sans-serif;
+            font-weight: 500;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            transition: background-color 0.3s ease, transform 0.2s ease;
         }
 
-        form .form-control:focus {
-            border-color: #3498db;
-            box-shadow: 0 0 5px rgba(52, 152, 219, 0.5);
-        }
-
-        form .btn {
-            font-size: 0.9rem;
-            font-weight: 600;
-            padding: 10px 20px;
-        }
-
-        /* Dropdown */
-        select.form-select {
-            max-width: 300px;
-            margin: 10px auto;
-            padding: 10px;
-            border-radius: 5px;
-            border: 1px solid #ccc;
+        .export-btn:hover {
+            background: linear-gradient(145deg, #357abd, #2a6395);
+            transform: translateY(-2px);
         }
 
         /* Responsive Design */
         @media (max-width: 768px) {
             .sidebar {
-                position: relative;
-                height: auto;
-                width: 100%;
-                padding-top: 0;
+                position: fixed;
+                height: 100vh;
+                width: 250px;
+                transform: translateX(-100%);
+                transition: transform 0.3s ease;
+            }
+
+            .sidebar.active {
+                transform: translateX(0);
             }
 
             .content {
                 margin-left: 0;
-                margin-top: 100px;
+                margin-top: 80px;
+                padding: 20px;
+                border-radius: 8px;
             }
 
-            .table {
-                font-size: 0.9rem;
-            }
-
-            .btn {
-                font-size: 0.8rem;
-                padding: 8px 12px;
+            .mobile-menu-btn {
+                display: block;
             }
 
             .header {
                 padding: 10px 15px;
             }
 
-            /* Stack table columns on small screens */
-            .table thead {
-                display: none;
+            .table-wrapper {
+                box-shadow: none;
             }
 
-            .table tbody tr {
-                display: block;
-                margin-bottom: 10px;
+            .table {
+                font-size: 0.9rem;
             }
 
-            .table tbody td {
-                display: block;
-                text-align: right;
-                padding-left: 50%;
-                position: relative;
+            .table thead th, .table tbody td {
+                padding: 10px;
             }
 
-            .table tbody td:before {
-                content: attr(data-label);
-                position: absolute;
-                left: 10px;
-                width: 45%;
-                text-align: left;
-                font-weight: bold;
+            h2 {
+                font-size: 1.5rem;
+            }
+
+            h4 {
+                font-size: 1.2rem;
+            }
+
+            .btn-primary, .export-btn {
+                padding: 10px 15px;
             }
         }
     </style>
 </head>
 <body>
-<?php include '../header_admin.php'; ?>
-
-<!-- Sidebar for larger screens -->
-<nav class="sidebar d-none d-md-block">
-    <h4 class="text-center mt-3">Student Forms</h4>
-    <a href="dashboard.php">Dashboard</a>
-    <a href="form_a.php">Form A</a>
-    <a href="form_b.php">Form B</a>
-    <a href="form_c.php">Form C</a>
-    <a href="form_d.php">Form D</a>
-    <a href="form_e.php">Form E</a>
-</nav>
-
-<!-- Mobile menu toggle button -->
-<div class="mobile-menu-btn d-md-none p-2 bg-dark text-white text-center">
-    <button class="btn btn-light" type="button" data-bs-toggle="collapse" data-bs-target="#mobileMenu" aria-expanded="false" aria-controls="mobileMenu">
-        Menu
-    </button>
-</div>
-
-<!-- Mobile menu -->
-<div class="collapse d-md-none" id="mobileMenu">
-    <nav class="bg-dark">
-        <a href="dashboard.php" class="text-white">Dashboard</a>
-        <a href="form_a.php" class="text-white">Form A</a>
-        <a href="form_b.php" class="text-white">Form B</a>
-        <a href="form_c.php" class="text-white">Form C</a>
-        <a href="form_d.php" class="text-white">Form D</a>
-        <a href="form_e.php" class="text-white">Form E</a>
-    </nav>
-</div>
-
-<div class="content">
-    <div class="container mt-4">
-        <!-- Header Section -->
-        <div class="row mb-4">
-            <div class="col text-center">
-                <h2>NPTC</h2>
-                <p>Merit List Report</p>
-                <p>Form B</p>
-            </div>
-        </div>
-
-        <!-- Filter Section -->
-        <form method="GET" class="mb-4">
-            <div class="row align-items-center">
-                <div class="col-md-4">
-                    <select name="department" class="form-select">
-                        <option value="All Departments" <?= $selectedDepartment === 'All Departments' ? 'selected' : '' ?>>
-                            All Departments
-                        </option>
-                        <?php foreach ($departments as $dept): ?>
-                            <option value="<?= htmlspecialchars($dept) ?>" <?= $selectedDepartment === $dept ? 'selected' : '' ?>>
-                                <?= htmlspecialchars($dept) ?>
-                            </option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-                <div class="col-md-2">
-                    <button type="submit" class="btn btn-primary">Filter</button>
-                </div>
-            </div>
-        </form>
-
-        <!-- Table Section -->
-        <h3>Merit List - <?= htmlspecialchars($selectedDepartment) ?> (Admitted Students)</h3>
-        <?php if (count($studentsData) > 0): ?>
-            <p><?= count($studentsData) ?> student(s) found.</p>
-            <div class="table-container">
-                <table class="table table-bordered table-striped">
-                    <thead>
-                        <tr>
-                            <th>S.No</th>
-                            <th>Name</th>
-                            <th>Sex</th>
-                            <th>Community</th>
-                            <th>DOB</th>
-                            <th>Qualification</th>
-                            <th>Year of Passing</th>
-                            <th>Tamil</th>
-                            <th>English</th>
-                            <th>Maths</th>
-                            <th>Science</th>
-                            <th>Social Science</th>
-                            <th>Other Marks</th>
-                            <th>Total</th>
-                            <th>Average</th>
-                            <th>Department</th>
-                            <th>Allocated</th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($studentsData as $row): ?>
-                            <tr>
-                                <td data-label="S.No"><?= htmlspecialchars($row['sno']) ?></td>
-                                <td data-label="Name"><?= htmlspecialchars($row['studentFirstName'] . ' ' . $row['studentLastName']) ?></td>
-                                <td data-label="Sex"><?= htmlspecialchars($row['sex']) ?></td>
-                                <td data-label="Community"><?= htmlspecialchars($row['community']) ?></td>
-                                <td data-label="DOB"><?= htmlspecialchars($row['dob']) ?></td>
-                                <td data-label="Qualification"><?= htmlspecialchars($row['qualify']) ?></td>
-                                <td data-label="Year of Passing"><?= htmlspecialchars($row['yr_pass']) ?></td>
-                                <td data-label="Tamil"><?= htmlspecialchars($row['tamilMarks']) ?></td>
-                                <td data-label="English"><?= htmlspecialchars($row['englishMarks']) ?></td>
-                                <td data-label="Maths"><?= htmlspecialchars($row['mathsMarks']) ?></td>
-                                <td data-label="Science"><?= htmlspecialchars($row['scienceMarks']) ?></td>
-                                <td data-label="Social Science"><?= htmlspecialchars($row['socialScienceMarks']) ?></td>
-                                <td data-label="Other Marks"><?= htmlspecialchars($row['otherLanguageMarks']) ?></td>
-                                <td data-label="Total"><?= htmlspecialchars($row['totalMarks']) ?></td>
-                                <td data-label="Average"><?= number_format($row['average'], 2) ?></td>
-                                <td data-label="Department"><?= htmlspecialchars($row['department']) ?></td>
-                                <td data-label="Allocated"><?= htmlspecialchars($row['allocated']) ?></td>
-                                <td data-label="Status"><?= htmlspecialchars($row['status']) ?></td>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            </div>
-        <?php else: ?>
-            <p>No results found.</p>
-        <?php endif; ?>
+    <div class="header">
+        <h1 class="title">Admin Dashboard</h1>
+        <a href="../logout.php" class="logout-btn">Logout</a>
     </div>
-</div>
 
-<!-- Floating Export Button -->
-<div class="export-btn" style="position: fixed; bottom: 20px; right: 20px; padding: 10px 20px; background-color: #3498db; color: white; border-radius: 5px; cursor: pointer;" onclick="showExportModal()">Export</div>
+    <!-- Sidebar for larger screens -->
+    <nav class="sidebar d-none d-md-block">
+        <h4 class="text-center mt-3">Student Forms</h4>
+        <a href="dashboard.php">Dashboard</a>
+        <a href="form_a.php">Form A</a>
+        <a href="form_b.php">Form B</a>
+        <a href="form_c.php">Form C</a>
+        <a href="form_d.php">Form D</a>
+        <a href="form_e.php">Form E</a>
+    </nav>
 
-<!-- Export Modal -->
-<div class="modal fade" id="exportModal" tabindex="-1" aria-labelledby="exportModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="exportModalLabel">Export Options</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+    <!-- Mobile menu toggle button -->
+    <div class="mobile-menu-btn d-md-none p-2 bg-dark text-white text-center">
+        <button class="btn btn-light" type="button" data-bs-toggle="collapse" data-bs-target="#mobileMenu" aria-expanded="false" aria-controls="mobileMenu">
+            Menu
+        </button>
+    </div>
+
+    <!-- Mobile menu -->
+    <div class="collapse d-md-none" id="mobileMenu">
+        <nav class="bg-dark">
+            <a href="dashboard.php" class="text-white">Dashboard</a>
+            <a href="form_a.php" class="text-white">Form A</a>
+            <a href="form_b.php" class="text-white">Form B</a>
+            <a href="form_c.php" class="text-white">Form C</a>
+            <a href="form_d.php" class="text-white">Form D</a>
+            <a href="form_e.php" class="text-white">Form E</a>
+        </nav>
+    </div>
+
+    <div class="content">
+        <div class="container mt-4">
+            <!-- Header Section -->
+            <div class="row mb-4">
+                <div class="col text-center">
+                    <h2>NPTC</h2>
+                    <p>Merit List Report</p>
+                    <p>Form B</p>
+                </div>
             </div>
-            <form method="POST" id="exportForm">
-                <div class="modal-body">
-                    <div class="mb-3">
-                        <label for="exportFormat" class="form-label">Export Format</label>
-                        <select class="form-select" id="exportFormat" name="export_format">
-                            <option value="pdf">PDF</option>
-                            <option value="excel">Excel</option>
+
+            <!-- Filter Section -->
+            <form method="GET" class="mb-4">
+                <div class="row align-items-center">
+                    <div class="col-md-4">
+                        <select name="department" class="form-select">
+                            <option value="All Departments" <?= $selectedDepartment === 'All Departments' ? 'selected' : '' ?>>
+                                All Departments
+                            </option>
+                            <?php foreach ($departments as $dept): ?>
+                                <option value="<?= htmlspecialchars($dept) ?>" <?= $selectedDepartment === $dept ? 'selected' : '' ?>>
+                                    <?= htmlspecialchars($dept) ?>
+                                </option>
+                            <?php endforeach; ?>
                         </select>
                     </div>
-                    <div class="form-check mb-3">
-                        <input class="form-check-input" type="checkbox" id="passwordCheck" name="password_check">
-                        <label class="form-check-label" for="passwordCheck">Add Password Protection (PDF only)</label>
+                    <div class="col-md-2">
+                        <button type="submit" class="btn btn-primary">Filter</button>
                     </div>
-                    <div id="passwordField" class="mb-3" style="display: none;">
-                        <label for="passwordInput" class="form-label">Password</label>
-                        <input type="password" class="form-control" id="passwordInput" name="password">
-                    </div>
-                    <div class="form-check mb-3">
-                        <input class="form-check-input" type="checkbox" id="signatureCheck" name="signature_check">
-                        <label class="form-check-label" for="signatureCheck">Add Signatures</label>
-                    </div>
-                    <div id="signatureFields" style="display: none;">
-                        <label for="signatureCount" class="form-label">Number of Signatures</label>
-                        <input type="number" class="form-control mb-2" id="signatureCount" name="signature_count" min="1">
-                        <div id="signatureInputs"></div>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                    <button type="submit" class="btn btn-primary" name="export">Export</button>
                 </div>
             </form>
+
+            <!-- Table Section -->
+            <h3>Merit List - <?= htmlspecialchars($selectedDepartment) ?> (Admitted Students)</h3>
+            <?php if (count($studentsData) > 0): ?>
+                <p><?= count($studentsData) ?> student(s) found.</p>
+                <div class="table-wrapper">
+                    <table class="table table-bordered table-striped" id="meritTable">
+                        <thead>
+                            <tr>
+                                <th>S.No</th>
+                                <th>Name</th>
+                                <th>Sex</th>
+                                <th>Community</th>
+                                <th>DOB</th>
+                                <th>Qualification</th>
+                                <th>Year of Passing</th>
+                                <th>Tamil</th>
+                                <th>English</th>
+                                <th>Maths</th>
+                                <th>Science</th>
+                                <th>Social Science</th>
+                                <th>Other Marks</th>
+                                <th>Total</th>
+                                <th>Average</th>
+                                <th>Department</th>
+                                <th>Allocated</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($studentsData as $row): ?>
+                                <tr>
+                                    <td data-label="S.No"><?= htmlspecialchars($row['sno']) ?></td>
+                                    <td data-label="Name"><?= htmlspecialchars($row['studentFirstName'] . ' ' . $row['studentLastName']) ?></td>
+                                    <td data-label="Sex"><?= htmlspecialchars($row['sex']) ?></td>
+                                    <td data-label="Community"><?= htmlspecialchars($row['community']) ?></td>
+                                    <td data-label="DOB"><?= htmlspecialchars($row['dob']) ?></td>
+                                    <td data-label="Qualification"><?= htmlspecialchars($row['qualify']) ?></td>
+                                    <td data-label="Year of Passing"><?= htmlspecialchars($row['yr_pass']) ?></td>
+                                    <td data-label="Tamil"><?= htmlspecialchars($row['tamilMarks']) ?></td>
+                                    <td data-label="English"><?= htmlspecialchars($row['englishMarks']) ?></td>
+                                    <td data-label="Maths"><?= htmlspecialchars($row['mathsMarks']) ?></td>
+                                    <td data-label="Science"><?= htmlspecialchars($row['scienceMarks']) ?></td>
+                                    <td data-label="Social Science"><?= htmlspecialchars($row['socialScienceMarks']) ?></td>
+                                    <td data-label="Other Marks"><?= htmlspecialchars($row['otherLanguageMarks']) ?></td>
+                                    <td data-label="Total"><?= htmlspecialchars($row['totalMarks']) ?></td>
+                                    <td data-label="Average"><?= number_format($row['average'], 2) ?></td>
+                                    <td data-label="Department"><?= htmlspecialchars($row['department']) ?></td>
+                                    <td data-label="Allocated"><?= htmlspecialchars($row['allocated']) ?></td>
+                                    <td data-label="Status"><?= htmlspecialchars($row['status']) ?></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            <?php else: ?>
+                <p>No results found.</p>
+            <?php endif; ?>
         </div>
     </div>
-</div>
 
-<!-- Scripts -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
-<script>
-    function showExportModal() {
-        $('#exportModal').modal('show');
-    }
+    <!-- Floating Export Button -->
+    <div class="export-btn" onclick="showExportModal()">Export</div>
 
-    $('#exportFormat').on('change', function() {
-        const format = $(this).val();
-        if (format === 'excel') {
-            $('#passwordCheck').prop('disabled', true).prop('checked', false);
-            $('#passwordField').hide();
-        } else {
-            $('#passwordCheck').prop('disabled', false);
+    <!-- Export Modal -->
+    <div class="modal fade" id="exportModal" tabindex="-1" aria-labelledby="exportModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="exportModalLabel">Export Options</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form method="POST" id="exportForm">
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label for="exportFormat" class="form-label">Export Format</label>
+                            <select class="form-select" id="exportFormat" name="export_format">
+                                <option value="pdf">PDF</option>
+                                <option value="excel">Excel</option>
+                            </select>
+                        </div>
+                        <div class="form-check mb-3">
+                            <input class="form-check-input" type="checkbox" id="passwordCheck" name="password_check">
+                            <label class="form-check-label" for="passwordCheck">Add Password Protection (PDF only)</label>
+                        </div>
+                        <div id="passwordField" class="mb-3" style="display: none;">
+                            <label for="passwordInput" class="form-label">Password</label>
+                            <input type="password" class="form-control" id="passwordInput" name="password">
+                        </div>
+                        <div class="form-check mb-3">
+                            <input class="form-check-input" type="checkbox" id="signatureCheck" name="signature_check">
+                            <label class="form-check-label" for="signatureCheck">Add Signatures</label>
+                        </div>
+                        <div id="signatureFields" style="display: none;">
+                            <label for="signatureCount" class="form-label">Number of Signatures</label>
+                            <input type="number" class="form-control mb-2" id="signatureCount" name="signature_count" min="1">
+                            <div id="signatureInputs"></div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                        <button type="submit" class="btn btn-primary" name="export">Export</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function showExportModal() {
+            $('#exportModal').modal('show');
         }
-    });
 
-    $('#passwordCheck').on('change', function() {
-        $('#passwordField').toggle(this.checked);
-    });
+        $('#exportFormat').on('change', function() {
+            const format = $(this).val();
+            if (format === 'excel') {
+                $('#passwordCheck').prop('disabled', true).prop('checked', false);
+                $('#passwordField').hide();
+            } else {
+                $('#passwordCheck').prop('disabled', false);
+            }
+        });
 
-    $('#signatureCheck').on('change', function() {
-        $('#signatureFields').toggle(this.checked);
-        if (!this.checked) $('#signatureInputs').empty();
-    });
+        $('#passwordCheck').on('change', function() {
+            $('#passwordField').toggle(this.checked);
+        });
 
-    $('#signatureCount').on('change', function() {
-        const count = parseInt(this.value) || 0;
-        const container = $('#signatureInputs');
-        container.empty();
-        for (let i = 0; i < count; i++) {
-            container.append(`
-                <label class="form-label">Signature ${i + 1} Name</label>
-                <input type="text" class="form-control mb-2" name="signatures[]">
-            `);
-        }
-    });
-</script>
+        $('#signatureCheck').on('change', function() {
+            $('#signatureFields').toggle(this.checked);
+            if (!this.checked) $('#signatureInputs').empty();
+        });
+
+        $('#signatureCount').on('change', function() {
+            const count = parseInt(this.value) || 0;
+            const container = $('#signatureInputs');
+            container.empty();
+            for (let i = 0; i < count; i++) {
+                container.append(`
+                    <label class="form-label">Signature ${i + 1} Name</label>
+                    <input type="text" class="form-control mb-2" name="signatures[]">
+                `);
+            }
+        });
+    </script>
 </body>
 </html>

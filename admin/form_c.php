@@ -7,19 +7,22 @@ if (!isset($_SESSION['userId'])) {
     exit();
 }
 
-// Fetch all unique department names along with department_status (MGMT/GOVT)
-$departmentQuery = "SELECT DISTINCT preferenceDepartment, department_status FROM preference";
+// Fetch unique department names where department_status is MGMT or GOVT only
+$departmentQuery = "SELECT DISTINCT preferenceDepartment, department_status 
+                    FROM preference 
+                    WHERE department_status IN ('MGMT', 'GOVT')";
 $departmentResult = $conn->query($departmentQuery);
 $departments = [];
 while ($dept = $departmentResult->fetch_assoc()) {
     $departments[$dept['preferenceDepartment']][] = $dept['department_status'];
 }
 
-// Initialize table structure
+// Initialize table structure for accepted statuses only (MGMT and GOVT), using status as type
 $tableData = [];
 foreach ($departments as $department => $statuses) {
     foreach ($statuses as $status) {
         $tableData[$department][$status] = [
+            'type' => $status, // Use MGMT or GOVT as the type label
             'shift' => 'First',
             'OC' => ['boys' => 0, 'girls' => 0],
             'BC' => ['boys' => 0, 'girls' => 0],
@@ -34,19 +37,31 @@ foreach ($departments as $department => $statuses) {
     }
 }
 
-// Fetch student data
+// Define mapping of studentCaste to community categories
+$casteMapping = [
+    'OC' => 'OC',
+    'BC' => 'BC',
+    'BC(M)' => 'BCM', // Assuming BC(M) maps to BCM
+    'MBC' => 'MBC',
+    'SCA' => 'SCA',   // Assuming SCA is a valid caste
+    'SC' => 'SC',
+    'ST' => 'ST',
+    // Add more mappings as per your database values (e.g., 'Others' could map to 'OC' or be excluded)
+];
+
+// Fetch and aggregate student data for MGMT or GOVT statuses only
 $query = "
 SELECT p.preferenceDepartment, p.department_status, sd.studentGender, sd.studentCaste, COUNT(*) AS studentCount
 FROM studentdetails sd
 LEFT JOIN preference p ON sd.studentUserId = p.preferenceUserId
-WHERE p.preferenceStatus = 'success'
+WHERE p.preferenceStatus = 'success' AND p.department_status IN ('MGMT', 'GOVT')
 GROUP BY p.preferenceDepartment, p.department_status, sd.studentCaste, sd.studentGender";
 $result = $conn->query($query);
 
-// Populate table data
+// Populate table data, using MGMT or GOVT as type with correct community counts
 while ($row = $result->fetch_assoc()) {
     $department = $row['preferenceDepartment'];
-    $status = $row['department_status']; // MGMT or GOVT
+    $status = $row['department_status']; // MGMT or GOVT only
     $caste = $row['studentCaste'];
     $gender = strtolower($row['studentGender']);
     $count = $row['studentCount'];
@@ -59,8 +74,17 @@ while ($row = $result->fetch_assoc()) {
         continue;
     }
 
-    if (isset($tableData[$department][$status][$caste][$gender])) {
-        $tableData[$department][$status][$caste][$gender] += $count;
+    // Map studentCaste to the correct community category
+    $community = isset($casteMapping[strtoupper($caste)]) ? $casteMapping[strtoupper($caste)] : 'OC'; // Default to OC if unmapped
+
+    if (isset($tableData[$department][$status][$community][$gender])) {
+        $tableData[$department][$status]['OC'][$gender] += ($community === 'OC') ? $count : 0;
+        $tableData[$department][$status]['BC'][$gender] += ($community === 'BC') ? $count : 0;
+        $tableData[$department][$status]['BCM'][$gender] += ($community === 'BCM') ? $count : 0;
+        $tableData[$department][$status]['MBC'][$gender] += ($community === 'MBC') ? $count : 0;
+        $tableData[$department][$status]['SCA'][$gender] += ($community === 'SCA') ? $count : 0;
+        $tableData[$department][$status]['SC'][$gender] += ($community === 'SC') ? $count : 0;
+        $tableData[$department][$status]['ST'][$gender] += ($community === 'ST') ? $count : 0;
         $tableData[$department][$status]['total'][$gender] += $count;
         $tableData[$department][$status]['side_total'] += $count;
     }
@@ -79,7 +103,7 @@ $totals = [
     'side_total' => 0,
 ];
 
-// Calculate totals
+// Calculate totals for MGMT and GOVT
 foreach ($tableData as $department => $statusData) {
     foreach ($statusData as $status => $data) {
         foreach ($data as $key => $values) {
@@ -101,247 +125,418 @@ foreach ($tableData as $department => $statusData) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Form C</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">         
-<style>
-      
-      /* General Reset */
- body {
-     font-family: 'Roboto', sans-serif;
-     background-color: #f4f6f9;
-     color: #333;
-     margin: 0;
-     padding: 0;
-     line-height: 1.6;
- }
- 
- /* Sidebar Styles */
- .sidebar {
-     height: 100vh;
-     position: fixed;
-     top: 0;
-     left: 0;
-     width: 250px;
-     background-color: #2c3e50;
-     color: #ecf0f1;
-     border-right: 1px solid #34495e;
-     box-shadow: 2px 0 5px rgba(0, 0, 0, 0.1);
-     overflow-y: auto;
-     padding-top: 70px; /* Align sidebar content with header */
- }
- 
- .sidebar a {
-     color: #bdc3c7;
-     text-decoration: none;
-     padding: 15px 20px;
-     display: block;
-     border-bottom: 1px solid #34495e;
-     font-weight: 500;
-     transition: all 0.3s ease;
- }
- 
- .sidebar a:hover {
-     background-color: #34495e;
-     color: #1abc9c;
- }
- 
- /* Content Area */
- .content {
-     margin-left: 250px;
-     padding: 30px;
-     margin-top: 70px; /* Adjust for header space */
-     background-color: #f4f6f9;
-     min-height: calc(100vh - 70px);
- }
- 
- /* Header Styles */
- .header {
-     background-color: #ffffff;
-     border-bottom: 1px solid #ddd;
-     padding: 10px 20px;
-     box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-     position: fixed;
-     width: 100%;
-     top: 0;
-     z-index: 1000;
-     display: flex;
-     justify-content: space-between;
-     align-items: center;
- }
- 
- .header .title {
-     font-size: 24px;
-     color: #2c3e50;
-     font-weight: 700;
- }
- 
- .header .logout-btn {
-     color: #ffffff;
-     background-color: #e74c3c;
-     border: none;
-     padding: 10px 15px;
-     font-size: 14px;
-     border-radius: 5px;
-     transition: background-color 0.3s ease;
- }
- 
- .header .logout-btn:hover {
-     background-color: #c0392b;
- }
- 
- /* Buttons */
- .btn-primary {
-     background-color: #3498db;
-     border: none;
-     font-weight: 600;
-     padding: 10px 15px;
-     border-radius: 5px;
-     color: #ffffff;
-     transition: background-color 0.3s ease, transform 0.2s ease;
- }
- 
- .btn-primary:hover {
-     background-color: #2980b9;
-     transform: translateY(-2px);
- }
- 
- .btn {
-     font-size: 0.95rem;
-     padding: 10px 15px;
-     border-radius: 5px;
- }
- 
- /* Table Styles */
- .table {
-     margin-top: 20px;
-     border-collapse: collapse;
-     width: 100%;
-     background-color: #ffffff;
-     border-radius: 8px;
-     overflow: hidden;
-     box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
- }
- 
- .table thead th {
-     background-color: #2980b9;
-     color: #ffffff;
-     text-align: center;
-     font-weight: 700;
-     padding: 15px;
-     border-bottom: 2px solid #1c5980;
- }
- 
- .table tbody tr {
-     transition: background-color 0.3s ease;
- }
- 
- .table tbody tr:nth-child(even) {
-     background-color: #f9f9f9;
- }
- 
- .table tbody tr:hover {
-     background-color: #ecf0f1;
- }
- 
- .table tbody td {
-     vertical-align: middle;
-     text-align: center;
-     padding: 12px;
-     border-bottom: 1px solid #ddd;
- }
- 
- /* Badge Styles */
- .badge {
-     display: inline-block;
-     padding: 0.4em 0.8em;
-     font-size: 0.85rem;
-     font-weight: 600;
-     text-align: center;
-     border-radius: 0.25rem;
- }
- 
- .bg-success {
-     background-color: #2ecc71 !important;
-     color: white !important;
- }
- 
- .bg-danger {
-     background-color: #e74c3c !important;
-     color: white !important;
- }
- 
- .bg-warning {
-     background-color: #f1c40f !important;
-     color: black !important;
- }
- 
- .bg-secondary {
-     background-color: #7f8c8d !important;
-     color: white !important;
- }
- 
- /* Form Styling */
- form {
-     margin-top: 20px;
- }
- 
- form .form-control {
-     border-radius: 5px;
-     padding: 10px;
-     border: 1px solid #ccc;
-     transition: border-color 0.3s ease;
- }
- 
- form .form-control:focus {
-     border-color: #3498db;
-     box-shadow: 0 0 5px rgba(52, 152, 219, 0.5);
- }
- 
- form .btn {
-     font-size: 0.9rem;
-     font-weight: 600;
-     padding: 10px 20px;
- }
- 
- /* Dropdown */
- select.form-select {
-     max-width: 300px;
-     margin: 10px auto;
-     padding: 10px;
-     border-radius: 5px;
-     border: 1px solid #ccc;
- }
- 
- /* Responsive Design */
- @media (max-width: 768px) {
-     .sidebar {
-         position: relative;
-         height: auto;
-         width: 100%;
-         padding-top: 0;
-     }
- 
-     .content {
-         margin-left: 0;
-         margin-top: 100px;
-     }
- 
-     .table {
-         font-size: 0.9rem;
-     }
- 
-     .btn {
-         font-size: 0.8rem;
-         padding: 8px 12px;
-     }
- 
-     .header {
-         padding: 10px 15px;
-     }
- }
- </style>
+    <style>
+/* Import Professional Fonts from Google Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&family=Roboto:wght@400;500&display=swap');
+
+/* General Reset */
+body {
+    font-family: 'Roboto', sans-serif;
+    background: linear-gradient(135deg, #f0f4f8, #d9e2ec); /* Subtle blue-gray gradient */
+    color: #2d3748;
+    margin: 0;
+    padding: 0;
+    line-height: 1.6;
+}
+
+/* Sidebar Styles */
+.sidebar {
+    height: 100vh;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 250px;
+    background: linear-gradient(145deg, #4a90e2, #357abd); /* Professional blue gradient */
+    color: #fff;
+    border-right: 1px solid #357abd;
+    box-shadow: 3px 0 15px rgba(0, 0, 0, 0.1);
+    overflow-y: auto;
+    padding-top: 80px;
+    transition: transform 0.3s ease;
+}
+
+.sidebar h4 {
+    font-family: 'Poppins', sans-serif;
+    font-size: 1.6rem;
+    font-weight: 600;
+    color: #fff;
+    text-align: center;
+    padding: 1.2rem;
+    margin-bottom: 1.5rem;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+}
+
+.sidebar a {
+    color: #fff;
+    text-decoration: none;
+    padding: 15px 20px;
+    display: block;
+    font-weight: 500;
+    font-family: 'Roboto', sans-serif;
+    transition: background-color 0.3s ease, padding-left 0.3s ease;
+}
+
+.sidebar a:hover {
+    background-color: rgba(255, 255, 255, 0.2);
+    padding-left: 25px; /* Subtle indent on hover */
+}
+
+/* Mobile Sidebar (Off-Canvas) */
+.mobile-menu-btn {
+    display: none;
+    position: fixed;
+    top: 75px;
+    left: 10px;
+    z-index: 1100;
+    background: linear-gradient(145deg, #4a90e2, #357abd);
+    border: 1px solid #357abd;
+    padding: 12px 18px;
+    border-radius: 6px;
+    color: #fff;
+    font-size: 1.1rem;
+    font-family: 'Roboto', sans-serif;
+    transition: background-color 0.3s ease, transform 0.3s ease;
+}
+
+.mobile-menu-btn:hover {
+    background: linear-gradient(145deg, #357abd, #2a6395);
+    transform: scale(1.05);
+}
+
+#mobileMenu {
+    position: fixed;
+    top: 0;
+    left: -250px;
+    width: 250px;
+    height: 100vh;
+    background: linear-gradient(145deg, #4a90e2, #357abd);
+    color: #fff;
+    box-shadow: 3px 0 15px rgba(0, 0, 0, 0.2);
+    z-index: 1050;
+    padding-top: 80px;
+    transition: left 0.3s ease;
+}
+
+#mobileMenu.show {
+    left: 0;
+}
+
+#mobileMenu a {
+    color: #fff;
+    text-decoration: none;
+    padding: 15px 20px;
+    display: block;
+    font-weight: 500;
+    font-family: 'Roboto', sans-serif;
+    transition: background-color 0.3s ease, padding-left 0.3s ease;
+}
+
+#mobileMenu a:hover {
+    background-color: rgba(255, 255, 255, 0.2);
+    padding-left: 25px;
+}
+
+/* Header Styles */
+.header {
+    background: linear-gradient(145deg, #4a90e2, #357abd);
+    border-bottom: 1px solid #357abd;
+    padding: 15px 25px;
+    box-shadow: 0 3px 15px rgba(0, 0, 0, 0.1);
+    position: fixed;
+    width: 100%;
+    top: 0;
+    z-index: 1100;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.header .title {
+    font-family: 'Poppins', sans-serif;
+    font-size: 2rem;
+    font-weight: 700;
+    color: #fff;
+    text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.header .logout-btn {
+    background: linear-gradient(145deg, #e53e3e, #c53030);
+    border: none;
+    padding: 10px 20px;
+    font-size: 1rem;
+    font-family: 'Roboto', sans-serif;
+    font-weight: 500;
+    border-radius: 6px;
+    color: #fff;
+    transition: background-color 0.3s ease, transform 0.2s ease;
+}
+
+.header .logout-btn:hover {
+    background: linear-gradient(145deg, #c53030, #9b2c2c);
+    transform: translateY(-2px);
+}
+
+/* Content Area */
+.content {
+    margin-left: 250px;
+    padding: 40px;
+    margin-top: 80px;
+    background: #fff;
+    min-height: calc(100vh - 80px);
+    box-shadow: 0 5px 20px rgba(0, 0, 0, 0.05);
+    border-radius: 12px;
+}
+
+/* Headings */
+h2, h4 {
+    font-family: 'Poppins', sans-serif;
+    color: #2d3748;
+    font-weight: 600;
+    margin-bottom: 1.5rem;
+    letter-spacing: 0.5px;
+}
+
+h2 {
+    font-size: 2rem;
+    background: linear-gradient(90deg, #4a90e2, #63b3ed);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+h4 {
+    font-size: 1.5rem;
+    border-bottom: 2px solid #e2e8f0;
+    padding-bottom: 5px;
+}
+
+/* Buttons */
+.btn-primary {
+    background: linear-gradient(145deg, #68d391, #48bb78);
+    border: none;
+    font-family: 'Roboto', sans-serif;
+    font-weight: 500;
+    padding: 12px 20px;
+    border-radius: 6px;
+    color: #fff;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    transition: background-color 0.3s ease, transform 0.2s ease, box-shadow 0.3s ease;
+}
+
+.btn-primary:hover {
+    background: linear-gradient(145deg, #48bb78, #38a169);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+}
+
+/* Enhanced Table Styling */
+.table-wrapper {
+    width: 100%;
+    overflow-x: auto;
+    margin-bottom: 2rem;
+    border-radius: 12px;
+    box-shadow: 0 5px 20px rgba(0, 0, 0, 0.05);
+    background: #fff;
+}
+
+.table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    background: #fff;
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.table thead th {
+    background: linear-gradient(145deg, #68d391, #48bb78);
+    color: #fff;
+    text-align: left;
+    font-family: 'Poppins', sans-serif;
+    font-weight: 600;
+    padding: 15px 20px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 2px solid #38a169;
+}
+
+.table tbody tr {
+    transition: background-color 0.3s ease, transform 0.2s ease;
+}
+
+.table tbody tr:nth-child(even) {
+    background-color: #f7fafc;
+}
+
+.table tbody tr:hover {
+    background-color: #edf2f7;
+    transform: translateY(-2px);
+}
+
+.table tbody td {
+    padding: 15px 20px;
+    border-bottom: 1px solid #e2e8f0;
+    font-family: 'Roboto', sans-serif;
+    font-weight: 400;
+    color: #4a5568;
+}
+
+.table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+/* Preference Table Specific */
+.table-bordered thead th {
+    background: linear-gradient(145deg, #63b3ed, #4299e1);
+}
+
+.table-bordered tbody td {
+    vertical-align: middle;
+}
+
+.badge {
+    padding: 8px 12px;
+    font-size: 0.9rem;
+    border-radius: 20px;
+    font-family: 'Roboto', sans-serif;
+    font-weight: 500;
+}
+
+/* Image Thumbnail */
+.img-thumbnail {
+    max-width: 150px;
+    height: auto;
+    cursor: pointer;
+    border-radius: 8px;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.img-thumbnail:hover {
+    transform: scale(1.05);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+}
+
+/* Full-Screen Modal */
+.fullscreen-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.9);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 2000;
+    overflow: auto;
+    transition: opacity 0.3s ease;
+    opacity: 0;
+}
+
+.fullscreen-modal.show {
+    opacity: 1;
+}
+
+.fullscreen-modal img {
+    max-width: 90%;
+    max-height: 90%;
+    object-fit: contain;
+    border-radius: 8px;
+    box-shadow: 0 0 20px rgba(255, 255, 255, 0.2);
+}
+
+.fullscreen-modal .close-btn {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    background: #e53e3e;
+    color: #fff;
+    border: none;
+    font-size: 24px;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    transition: background-color 0.3s ease;
+}
+
+.fullscreen-modal .close-btn:hover {
+    background: #c53030;
+}
+
+/* Mobile Responsive */
+@media (max-width: 768px) {
+    .sidebar {
+        position: fixed;
+        height: 100vh;
+        width: 250px;
+        transform: translateX(-100%);
+        transition: transform 0.3s ease;
+    }
+
+    .sidebar.active {
+        transform: translateX(0);
+    }
+
+    .content {
+        margin-left: 0;
+        margin-top: 80px;
+        padding: 20px;
+        border-radius: 8px;
+    }
+
+    .mobile-menu-btn {
+        display: block;
+    }
+
+    .header {
+        padding: 10px 15px;
+    }
+
+    .table-wrapper {
+        box-shadow: none;
+    }
+
+    .table {
+        font-size: 0.9rem;
+    }
+
+    .table thead th, .table tbody td {
+        padding: 10px;
+    }
+
+    .img-thumbnail {
+        max-width: 100px;
+    }
+
+    .fullscreen-modal img {
+        max-width: 95%;
+        max-height: 85%;
+    }
+
+    h2 {
+        font-size: 1.5rem;
+    }
+
+    h4 {
+        font-size: 1.2rem;
+    }
+
+    .btn-primary {
+        padding: 10px 15px;
+    }
+}
+    </style>
 </head>
 <body>
+  <div class="header">
+        <h1 class="title animate__fadeIn">Admin Dashboard</h1>
+        <a href="../logout.php" class="logout-btn animate__fadeIn">Logout</a>
+    </div>
 
-<?php include '../header_admin.php'; ?>
 
 <!-- Sidebar for larger screens -->
 <nav class="sidebar d-none d-md-block">
@@ -372,77 +567,78 @@ foreach ($tableData as $department => $statusData) {
         <a href="form_e.php" class="text-white">Form E</a>
     </nav>
 </div>
-
 <div class="content">
     <div class="container mt-4">
-    <h2 class="text-center">NPTC</h2>
-    <p class="text-center">GIRLS BOYS STATISTICS - ADMITTED (MOTHER TONGUE)</p>
-    <p class="text-center">Form D</p>
-    <h4 class="text-center">Admission to First Year Diploma Courses (2024-2025)</h4>
-    
-    <table class="table table-bordered">
-        <thead class="thead-dark">
-        <tr>
-            <th rowspan=2>S.No</th>
-            <th rowspan=2>Department</th>
-            <th rowspan=2>Type</th>
-            <th rowspan=2>Shift</th>
-            <th colspan=2>OC</th>
-            <th colspan=2>BC</th>
-            <th colspan=2>BCM</th>
-            <th colspan=2>MBC</th>
-            <th colspan=2>SCA</th>
-            <th colspan=2>SC</th>
-            <th colspan=2>ST</th>
-            <th colspan=2>Total</th>
-            <th rowspan=2>Overall Total</th>
-        </tr>
-        <tr>
-            <th>(B)</th><th>(G)</th>
-            <th>(B)</th><th>(G)</th>
-            <th>(B)</th><th>(G)</th>
-            <th>(B)</th><th>(G)</th>
-            <th>(B)</th><th>(G)</th>
-            <th>(B)</th><th>(G)</th>
-            <th>(B)</th><th>(G)</th>
-            <th>(B)</th><th>(G)</th>
-        </tr>
-        </thead>
-        <tbody>
-        <?php
-        $serialNumber = 1;
-        foreach ($tableData as $department => $statusData) {
-            foreach ($statusData as $status => $data) {
-                echo "<tr>";
-                echo "<td>{$serialNumber}</td>";
-                echo "<td>{$department}</td>";
-                echo "<td>{$status}</td>";
-                echo "<td>{$data['shift']}</td>";
-                foreach (['OC', 'BC', 'BCM', 'MBC', 'SCA', 'SC', 'ST', 'total'] as $category) {
-                    echo "<td>{$data[$category]['boys']}</td>";
-                    echo "<td>{$data[$category]['girls']}</td>";
+        <h2 class="text-center">NPTC</h2>
+        <p class="text-center">GIRLS BOYS STATISTICS - ADMITTED (COMMUNITY)</p>
+        <p class="text-center">Form C</p>
+        <h4 class="text-center">Admission to First Year Diploma Courses (2024-2025)</h4>
+        
+        <<div class="table-wrapper">
+    <table class="table">
+            <thead class="thead-dark">
+                <tr>
+                    <th rowspan="2">S.No</th>
+                    <th rowspan="2">Department</th>
+                    <th rowspan="2">Type</th>
+                    <th rowspan="2">Shift</th>
+                    <th colspan="2">OC</th>
+                    <th colspan="2">BC</th>
+                    <th colspan="2">BCM</th>
+                    <th colspan="2">MBC</th>
+                    <th colspan="2">SCA</th>
+                    <th colspan="2">SC</th>
+                    <th colspan="2">ST</th>
+                    <th colspan="2">Total</th>
+                    <th rowspan="2">Overall Total</th>
+                </tr>
+                <tr>
+                    <th>(B)</th><th>(G)</th>
+                    <th>(B)</th><th>(G)</th>
+                    <th>(B)</th><th>(G)</th>
+                    <th>(B)</th><th>(G)</th>
+                    <th>(B)</th><th>(G)</th>
+                    <th>(B)</th><th>(G)</th>
+                    <th>(B)</th><th>(G)</th>
+                    <th>(B)</th><th>(G)</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php
+                $serialNumber = 1;
+                foreach ($tableData as $department => $statusData) {
+                    foreach ($statusData as $status => $data) {
+                        echo "<tr>";
+                        echo "<td>{$serialNumber}</td>";
+                        echo "<td>{$department}</td>";
+                        echo "<td>{$status}</td>"; // Displays "GOVT" or "MGMT" for the respective status
+                        echo "<td>{$data['shift']}</td>";
+                        foreach (['OC', 'BC', 'BCM', 'MBC', 'SCA', 'SC', 'ST', 'total'] as $category) {
+                            echo "<td>{$data[$category]['boys']}</td>";
+                            echo "<td>{$data[$category]['girls']}</td>";
+                        }
+                        echo "<td>{$data['side_total']}</td>";
+                        echo "</tr>";
+                        $serialNumber++;
+                    }
                 }
-                echo "<td>{$data['side_total']}</td>";
-                echo "</tr>";
-                $serialNumber++;
-            }
-        }
-        ?>
-        <!-- Totals Row -->
-<tr class="table-primary">
-    <td colspan="4" class="text-center"><strong>Total</strong></td>
-    <?php
-    foreach (['OC', 'BC', 'BCM', 'MBC', 'SCA', 'SC', 'ST', 'total'] as $category) {
-        echo "<td><strong>{$totals[$category]['boys']}</strong></td>";
-        echo "<td><strong>{$totals[$category]['girls']}</strong></td>";
-    }
-    ?>
-    <td><strong><?= $totals['side_total']; ?></strong></td>
-</tr>
-
-        </tbody>
-    </table>
+                ?>
+                <!-- Totals Row -->
+                <tr class="table-primary">
+                    <td colspan="4" class="text-center"><strong>Total</strong></td>
+                    <?php
+                    foreach (['OC', 'BC', 'BCM', 'MBC', 'SCA', 'SC', 'ST', 'total'] as $category) {
+                        echo "<td><strong>{$totals[$category]['boys']}</strong></td>";
+                        echo "<td><strong>{$totals[$category]['girls']}</strong></td>";
+                    }
+                    ?>
+                    <td><strong><?= $totals['side_total']; ?></strong></td>
+                </tr>
+            </tbody>
+        </table>
     </div>
 </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

@@ -27,6 +27,14 @@ ORDER BY sd.studentUserId, p.preferenceOrder ASC";
 
 $allUsersResult = $conn->query($query);
 
+// Fetch distinct departments for the filter dropdown
+$deptQuery = "SELECT DISTINCT preferenceDepartment FROM preference WHERE preferenceDepartment IS NOT NULL";
+$deptResult = $conn->query($deptQuery);
+$departments = [];
+while ($deptRow = $deptResult->fetch_assoc()) {
+    $departments[] = $deptRow['preferenceDepartment'];
+}
+
 $studentsData = [];
 $serialNumber = 1;
 while ($row = $allUsersResult->fetch_assoc()) {
@@ -59,13 +67,14 @@ while ($row = $allUsersResult->fetch_assoc()) {
     }
 }
 
-// Handle export
+// Handle export request
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
     require_once '../vendor/autoload.php';
 
     $format = $_POST['export_format'];
     $password = !empty($_POST['password']) ? $_POST['password'] : '';
     $signatures = !empty($_POST['signatures']) ? $_POST['signatures'] : [];
+    $filteredData = json_decode($_POST['filtered_data'], true); // Get filtered data from client-side
 
     if ($format === 'pdf') {
         require_once '../vendor/tecnickcom/tcpdf/tcpdf.php';
@@ -109,7 +118,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
         }
         $html .= '</tr></thead><tbody>';
 
-        foreach ($studentsData as $row) {
+        foreach ($filteredData as $row) {
             $html .= '<tr>';
             $html .= '<td width="' . $scaledWidths[0] . 'mm" align="center">' . htmlspecialchars($row['sno']) . '</td>';
             $html .= '<td width="' . $scaledWidths[1] . 'mm" align="center">' . htmlspecialchars($row['studentFirstName'] . ' ' . $row['studentLastName']) . '</td>';
@@ -213,7 +222,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
         ]);
 
         $rowNum = 7;
-        foreach ($studentsData as $row) {
+        foreach ($filteredData as $row) {
             $sheet->setCellValue('A' . $rowNum, $row['sno']);
             $sheet->setCellValue('B' . $rowNum, $row['studentFirstName'] . ' ' . $row['studentLastName']);
             $sheet->setCellValue('C' . $rowNum, $row['sex']);
@@ -291,12 +300,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Form A</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&family=Roboto:wght@400;500&display=swap" rel="stylesheet">
     <style>
+        /* Import Professional Fonts from Google Fonts */
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&family=Roboto:wght@400;500&display=swap');
+
         /* General Reset */
         body {
             font-family: 'Roboto', sans-serif;
-            background-color: #f4f6f9;
-            color: #333;
+            background: linear-gradient(135deg, #f0f4f8, #d9e2ec);
+            color: #2d3748;
             margin: 0;
             padding: 0;
             line-height: 1.6;
@@ -309,110 +322,243 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
             top: 0;
             left: 0;
             width: 250px;
-            background-color: #2c3e50;
-            color: #ecf0f1;
-            border-right: 1px solid #34495e;
-            box-shadow: 2px 0 5px rgba(0, 0, 0, 0.1);
+            background: linear-gradient(145deg, #4a90e2, #357abd);
+            color: #fff;
+            border-right: 1px solid #357abd;
+            box-shadow: 3px 0 15px rgba(0, 0, 0, 0.1);
             overflow-y: auto;
-            padding-top: 70px;
+            padding-top: 80px;
+            transition: transform 0.3s ease;
+        }
+
+        .sidebar h4 {
+            font-family: 'Poppins', sans-serif;
+            font-size: 1.6rem;
+            font-weight: 600;
+            color: #fff;
+            text-align: center;
+            padding: 1.2rem;
+            margin-bottom: 1.5rem;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
         }
 
         .sidebar a {
-            color: #bdc3c7;
+            color: #fff;
             text-decoration: none;
             padding: 15px 20px;
             display: block;
-            border-bottom: 1px solid #34495e;
             font-weight: 500;
-            transition: all 0.3s ease;
+            font-family: 'Roboto', sans-serif;
+            transition: background-color 0.3s ease, padding-left 0.3s ease;
         }
 
         .sidebar a:hover {
-            background-color: #34495e;
-            color: #1abc9c;
+            background-color: rgba(255, 255, 255, 0.2);
+            padding-left: 25px;
         }
 
-        /* Content Area */
-        .content {
-            margin-left: 250px;
-            padding: 30px;
-            margin-top: 70px;
-            background-color: #f4f6f9;
-            min-height: calc(100vh - 70px);
+        /* Mobile Sidebar (Off-Canvas) */
+        .mobile-menu-btn {
+            display: none;
+            position: fixed;
+            top: 75px;
+            left: 10px;
+            z-index: 1100;
+            background: linear-gradient(145deg, #4a90e2, #357abd);
+            border: 1px solid #357abd;
+            padding: 12px 18px;
+            border-radius: 6px;
+            color: #fff;
+            font-size: 1.1rem;
+            font-family: 'Roboto', sans-serif;
+            transition: background-color 0.3s ease, transform 0.3s ease;
+        }
+
+        .mobile-menu-btn:hover {
+            background: linear-gradient(145deg, #357abd, #2a6395);
+            transform: scale(1.05);
+        }
+
+        #mobileMenu {
+            position: fixed;
+            top: 0;
+            left: -250px;
+            width: 250px;
+            height: 100vh;
+            background: linear-gradient(145deg, #4a90e2, #357abd);
+            color: #fff;
+            box-shadow: 3px 0 15px rgba(0, 0, 0, 0.2);
+            z-index: 1050;
+            padding-top: 80px;
+            transition: left 0.3s ease;
+        }
+
+        #mobileMenu.show {
+            left: 0;
+        }
+
+        #mobileMenu a {
+            color: #fff;
+            text-decoration: none;
+            padding: 15px 20px;
+            display: block;
+            font-weight: 500;
+            font-family: 'Roboto', sans-serif;
+            transition: background-color 0.3s ease, padding-left 0.3s ease;
+        }
+
+        #mobileMenu a:hover {
+            background-color: rgba(255, 255, 255, 0.2);
+            padding-left: 25px;
         }
 
         /* Header Styles */
         .header {
-            background-color: #ffffff;
-            border-bottom: 1px solid #ddd;
-            padding: 10px 20px;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            background: linear-gradient(145deg, #4a90e2, #357abd);
+            border-bottom: 1px solid #357abd;
+            padding: 15px 25px;
+            box-shadow: 0 3px 15px rgba(0, 0, 0, 0.1);
             position: fixed;
             width: 100%;
             top: 0;
-            z-index: 1000;
+            z-index: 1100;
             display: flex;
             justify-content: space-between;
             align-items: center;
         }
 
         .header .title {
-            font-size: 24px;
-            color: #2c3e50;
+            font-family: 'Poppins', sans-serif;
+            font-size: 2rem;
             font-weight: 700;
+            color: #fff;
+            text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.2);
         }
 
         .header .logout-btn {
-            color: #ffffff;
-            background-color: #e74c3c;
+            background: linear-gradient(145deg, #e53e3e, #c53030);
             border: none;
-            padding: 10px 15px;
-            font-size: 14px;
-            border-radius: 5px;
-            transition: background-color 0.3s ease;
+            padding: 10px 20px;
+            font-size: 1rem;
+            font-family: 'Roboto', sans-serif;
+            font-weight: 500;
+            border-radius: 6px;
+            color: #fff;
+            transition: background-color 0.3s ease, transform 0.2s ease;
         }
 
         .header .logout-btn:hover {
-            background-color: #c0392b;
+            background: linear-gradient(145deg, #c53030, #9b2c2c);
+            transform: translateY(-2px);
         }
 
-        /* Table Styles */
-        .table {
-            margin-top: 20px;
-            border-collapse: collapse;
+        /* Content Area */
+        .content {
+            margin-left: 250px;
+            padding: 40px;
+            margin-top: 80px;
+            background: #fff;
+            min-height: calc(100vh - 80px);
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.05);
+            border-radius: 12px;
+        }
+
+        /* Headings */
+        h2, h4 {
+            font-family: 'Poppins', sans-serif;
+            color: #2d3748;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
+            letter-spacing: 0.5px;
+        }
+
+        h2 {
+            font-size: 2rem;
+            background: linear-gradient(90deg, #4a90e2, #63b3ed);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        h4 {
+            font-size: 1.5rem;
+            border-bottom: 2px solid #e2e8f0;
+            padding-bottom: 5px;
+        }
+
+        /* Buttons */
+        .btn-primary {
+            background: linear-gradient(145deg, #68d391, #48bb78);
+            border: none;
+            font-family: 'Roboto', sans-serif;
+            font-weight: 500;
+            padding: 12px 20px;
+            border-radius: 6px;
+            color: #fff;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            transition: background-color 0.3s ease, transform 0.2s ease, box-shadow 0.3s ease;
+        }
+
+        .btn-primary:hover {
+            background: linear-gradient(145deg, #48bb78, #38a169);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+        }
+
+        /* Enhanced Table Styling */
+        .table-wrapper {
             width: 100%;
-            background-color: #ffffff;
-            border-radius: 8px;
+            overflow-x: auto;
+            margin-bottom: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.05);
+            background: #fff;
+        }
+
+        .table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            background: #fff;
+            border-radius: 12px;
             overflow: hidden;
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
         }
 
         .table thead th {
-            background-color: #2980b9;
-            color: #ffffff;
-            text-align: center;
-            font-weight: 700;
-            padding: 15px;
-            border-bottom: 2px solid #1c5980;
+            background: linear-gradient(145deg, #68d391, #48bb78);
+            color: #fff;
+            text-align: left;
+            font-family: 'Poppins', sans-serif;
+            font-weight: 600;
+            padding: 15px 20px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 2px solid #38a169;
         }
 
         .table tbody tr {
-            transition: background-color 0.3s ease;
+            transition: background-color 0.3s ease, transform 0.2s ease;
         }
 
         .table tbody tr:nth-child(even) {
-            background-color: #f9f9f9;
+            background-color: #f7fafc;
         }
 
         .table tbody tr:hover {
-            background-color: #ecf0f1;
+            background-color: #edf2f7;
+            transform: translateY(-2px);
         }
 
         .table tbody td {
-            vertical-align: middle;
-            text-align: center;
-            padding: 12px;
-            border-bottom: 1px solid #ddd;
+            padding: 15px 20px;
+            border-bottom: 1px solid #e2e8f0;
+            font-family: 'Roboto', sans-serif;
+            font-weight: 400;
+            color: #4a5568;
+        }
+
+        .table tbody tr:last-child td {
+            border-bottom: none;
         }
 
         /* Floating Export Button */
@@ -420,241 +566,320 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
             position: fixed;
             bottom: 20px;
             right: 20px;
-            padding: 10px 20px;
-            background-color: #3498db;
+            padding: 12px 20px;
+            background: linear-gradient(145deg, #4a90e2, #357abd);
             color: white;
-            border-radius: 5px;
+            border-radius: 6px;
             cursor: pointer;
-            transition: background-color 0.3s ease;
+            font-family: 'Roboto', sans-serif;
+            font-weight: 500;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            transition: background-color 0.3s ease, transform 0.2s ease;
         }
 
         .export-btn:hover {
-            background-color: #2980b9;
+            background: linear-gradient(145deg, #357abd, #2a6395);
+            transform: translateY(-2px);
         }
 
         /* Responsive Design */
         @media (max-width: 768px) {
             .sidebar {
-                position: relative;
-                height: auto;
-                width: 100%;
-                padding-top: 0;
+                position: fixed;
+                height: 100vh;
+                width: 250px;
+                transform: translateX(-100%);
+                transition: transform 0.3s ease;
+            }
+
+            .sidebar.active {
+                transform: translateX(0);
             }
 
             .content {
                 margin-left: 0;
-                margin-top: 100px;
+                margin-top: 80px;
+                padding: 20px;
+                border-radius: 8px;
+            }
+
+            .mobile-menu-btn {
+                display: block;
+            }
+
+            .header {
+                padding: 10px 15px;
+            }
+
+            .table-wrapper {
+                box-shadow: none;
             }
 
             .table {
                 font-size: 0.9rem;
             }
 
-            .table thead {
-                display: none;
+            .table thead th, .table tbody td {
+                padding: 10px;
             }
 
-            .table tbody tr {
-                display: block;
-                margin-bottom: 10px;
+            h2 {
+                font-size: 1.5rem;
             }
 
-            .table tbody td {
-                display: block;
-                text-align: right;
-                padding-left: 50%;
-                position: relative;
+            h4 {
+                font-size: 1.2rem;
             }
 
-            .table tbody td:before {
-                content: attr(data-label);
-                position: absolute;
-                left: 10px;
-                width: 45%;
-                text-align: left;
-                font-weight: bold;
+            .btn-primary, .export-btn {
+                padding: 10px 15px;
             }
         }
     </style>
 </head>
 <body>
-<?php include '../header_admin.php'; ?>
+    <div class="header">
+        <h1 class="title">Admin Dashboard</h1>
+        <a href="../logout.php" class="logout-btn">Logout</a>
+    </div>
 
-<!-- Sidebar for larger screens -->
-<nav class="sidebar d-none d-md-block">
-    <h4 class="text-center mt-3">Student Forms</h4>
-    <a href="dashboard.php">Dashboard</a>
-    <a href="form_a.php">Form A</a>
-    <a href="form_b.php">Form B</a>
-    <a href="form_c.php">Form C</a>
-    <a href="form_d.php">Form D</a>
-    <a href="form_e.php">Form E</a>
-</nav>
-
-<!-- Mobile menu toggle button -->
-<div class="mobile-menu-btn d-md-none p-2 bg-dark text-white text-center">
-    <button class="btn btn-light" type="button" data-bs-toggle="collapse" data-bs-target="#mobileMenu" aria-expanded="false" aria-controls="mobileMenu">
-        Menu
-    </button>
-</div>
-
-<!-- Mobile menu -->
-<div class="collapse d-md-none" id="mobileMenu">
-    <nav class="bg-dark">
-        <a href="dashboard.php" class="text-white">Dashboard</a>
-        <a href="form_a.php" class="text-white">Form A</a>
-        <a href="form_b.php" class="text-white">Form B</a>
-        <a href="form_c.php" class="text-white">Form C</a>
-        <a href="form_d.php" class="text-white">Form D</a>
-        <a href="form_e.php" class="text-white">Form E</a>
+    <!-- Sidebar for larger screens -->
+    <nav class="sidebar d-none d-md-block">
+        <h4 class="text-center mt-3">Student Forms</h4>
+        <a href="dashboard.php">Dashboard</a>
+        <a href="form_a.php">Form A</a>
+        <a href="form_b.php">Form B</a>
+        <a href="form_c.php">Form C</a>
+        <a href="form_d.php">Form D</a>
+        <a href="form_e.php">Form E</a>
     </nav>
-</div>
 
-<div class="content">
-    <div class="container mt-4">
-        <h2 class="text-center">NPTC</h2>
-        <p class="text-center">Merit List Report</p>
-        <p class="text-center">Form A</p>
+    <!-- Mobile menu toggle button -->
+    <div class="mobile-menu-btn d-md-none p-2 bg-dark text-white text-center">
+        <button class="btn btn-light" type="button" data-bs-toggle="collapse" data-bs-target="#mobileMenu" aria-expanded="false" aria-controls="mobileMenu">
+            Menu
+        </button>
+    </div>
 
-        <h3>Merit List (Prepared After Applications)</h3>
-        <div class="table-container">
-            <table class="table table-bordered table-striped">
-                <thead>
-                    <tr>
-                        <th>S.No</th>
-                        <th>Name</th>
-                        <th>Sex</th>
-                        <th>Community</th>
-                        <th>DOB</th>
-                        <th>Qualification</th>
-                        <th>Year of Passing</th>
-                        <th>Tamil</th>
-                        <th>English</th>
-                        <th>Maths</th>
-                        <th>Science</th>
-                        <th>Social Science</th>
-                        <th>Other Marks</th>
-                        <th>Total</th>
-                        <th>Average</th>
-                        <th>Department 1</th>
-                        <th>Department 2</th>
-                        <th>Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ($studentsData as $row): ?>
-                        <tr>
-                            <td data-label="S.No"><?= htmlspecialchars($row['sno']) ?></td>
-                            <td data-label="Name"><?= htmlspecialchars($row['studentFirstName'] . ' ' . $row['studentLastName']) ?></td>
-                            <td data-label="Sex"><?= htmlspecialchars($row['sex']) ?></td>
-                            <td data-label="Community"><?= htmlspecialchars($row['community']) ?></td>
-                            <td data-label="DOB"><?= htmlspecialchars($row['dob']) ?></td>
-                            <td data-label="Qualification"><?= htmlspecialchars($row['qualify']) ?></td>
-                            <td data-label="Year of Passing"><?= htmlspecialchars($row['yr_pass']) ?></td>
-                            <td data-label="Tamil"><?= htmlspecialchars($row['tamilMarks']) ?></td>
-                            <td data-label="English"><?= htmlspecialchars($row['englishMarks']) ?></td>
-                            <td data-label="Maths"><?= htmlspecialchars($row['mathsMarks']) ?></td>
-                            <td data-label="Science"><?= htmlspecialchars($row['scienceMarks']) ?></td>
-                            <td data-label="Social Science"><?= htmlspecialchars($row['socialScienceMarks']) ?></td>
-                            <td data-label="Other Marks"><?= htmlspecialchars($row['otherLanguageMarks']) ?></td>
-                            <td data-label="Total"><?= htmlspecialchars($row['totalMarks']) ?></td>
-                            <td data-label="Average"><?= number_format($row['average'], 2) ?></td>
-                            <td data-label="Department 1"><?= htmlspecialchars($row['department1']) ?></td>
-                            <td data-label="Department 2"><?= htmlspecialchars($row['department2']) ?></td>
-                            <td data-label="Status"><?= htmlspecialchars($row['status']) ?></td>
-                        </tr>
+    <!-- Mobile menu -->
+    <div class="collapse d-md-none" id="mobileMenu">
+        <nav class="bg-dark">
+            <a href="dashboard.php" class="text-white">Dashboard</a>
+            <a href="form_a.php" class="text-white">Form A</a>
+            <a href="form_b.php" class="text-white">Form B</a>
+            <a href="form_c.php" class="text-white">Form C</a>
+            <a href="form_d.php" class="text-white">Form D</a>
+            <a href="form_e.php" class="text-white">Form E</a>
+        </nav>
+    </div>
+
+    <div class="content">
+        <div class="container mt-4">
+            <h2 class="text-center">NPTC</h2>
+            <p class="text-center">Merit List Report</p>
+            <p class="text-center">Form A</p>
+
+            <!-- Department Filter -->
+            <div class="text-center mb-4">
+                <label for="departmentFilter" class="form-label">Filter by Department:</label>
+                <select id="departmentFilter" class="form-select d-inline-block w-auto" onchange="filterTable()">
+                    <option value="">All Departments</option>
+                    <?php foreach ($departments as $dept): ?>
+                        <option value="<?= htmlspecialchars($dept) ?>"><?= htmlspecialchars($dept) ?></option>
                     <?php endforeach; ?>
-                </tbody>
-            </table>
-        </div>
-    </div>
-</div>
-
-<!-- Floating Export Button -->
-<div class="export-btn" onclick="showExportModal()">Export</div>
-
-<!-- Export Modal -->
-<div class="modal fade" id="exportModal" tabindex="-1" aria-labelledby="exportModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="exportModalLabel">Export Options</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </select>
             </div>
-            <form method="POST" id="exportForm">
-                <div class="modal-body">
-                    <div class="mb-3">
-                        <label for="exportFormat" class="form-label">Export Format</label>
-                        <select class="form-select" id="exportFormat" name="export_format">
-                            <option value="pdf">PDF</option>
-                            <option value="excel">Excel</option>
-                        </select>
-                    </div>
-                    <div class="form-check mb-3">
-                        <input class="form-check-input" type="checkbox" id="passwordCheck" name="password_check">
-                        <label class="form-check-label" for="passwordCheck">Add Password Protection (PDF only)</label>
-                    </div>
-                    <div id="passwordField" class="mb-3" style="display: none;">
-                        <label for="passwordInput" class="form-label">Password</label>
-                        <input type="password" class="form-control" id="passwordInput" name="password">
-                    </div>
-                    <div class="form-check mb-3">
-                        <input class="form-check-input" type="checkbox" id="signatureCheck" name="signature_check">
-                        <label class="form-check-label" for="signatureCheck">Add Signatures</label>
-                    </div>
-                    <div id="signatureFields" style="display: none;">
-                        <label for="signatureCount" class="form-label">Number of Signatures</label>
-                        <input type="number" class="form-control mb-2" id="signatureCount" name="signature_count" min="1">
-                        <div id="signatureInputs"></div>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                    <button type="submit" class="btn btn-primary" name="export">Export</button>
-                </div>
-            </form>
+
+            <h3>Merit List (Prepared After Applications)</h3>
+            <div class="table-wrapper">
+                <table class="table table-bordered table-striped" id="meritTable">
+                    <thead>
+                        <tr>
+                            <th>S.No</th>
+                            <th>Name</th>
+                            <th>Sex</th>
+                            <th>Community</th>
+                            <th>DOB</th>
+                            <th>Qualification</th>
+                            <th>Year of Passing</th>
+                            <th>Tamil</th>
+                            <th>English</th>
+                            <th>Maths</th>
+                            <th>Science</th>
+                            <th>Social Science</th>
+                            <th>Other Marks</th>
+                            <th>Total</th>
+                            <th>Average</th>
+                            <th>Department 1</th>
+                            <th>Department 2</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($studentsData as $row): ?>
+                            <tr>
+                                <td data-label="S.No"><?= htmlspecialchars($row['sno']) ?></td>
+                                <td data-label="Name"><?= htmlspecialchars($row['studentFirstName'] . ' ' . $row['studentLastName']) ?></td>
+                                <td data-label="Sex"><?= htmlspecialchars($row['sex']) ?></td>
+                                <td data-label="Community"><?= htmlspecialchars($row['community']) ?></td>
+                                <td data-label="DOB"><?= htmlspecialchars($row['dob']) ?></td>
+                                <td data-label="Qualification"><?= htmlspecialchars($row['qualify']) ?></td>
+                                <td data-label="Year of Passing"><?= htmlspecialchars($row['yr_pass']) ?></td>
+                                <td data-label="Tamil"><?= htmlspecialchars($row['tamilMarks']) ?></td>
+                                <td data-label="English"><?= htmlspecialchars($row['englishMarks']) ?></td>
+                                <td data-label="Maths"><?= htmlspecialchars($row['mathsMarks']) ?></td>
+                                <td data-label="Science"><?= htmlspecialchars($row['scienceMarks']) ?></td>
+                                <td data-label="Social Science"><?= htmlspecialchars($row['socialScienceMarks']) ?></td>
+                                <td data-label="Other Marks"><?= htmlspecialchars($row['otherLanguageMarks']) ?></td>
+                                <td data-label="Total"><?= htmlspecialchars($row['totalMarks']) ?></td>
+                                <td data-label="Average"><?= number_format($row['average'], 2) ?></td>
+                                <td data-label="Department 1"><?= htmlspecialchars($row['department1']) ?></td>
+                                <td data-label="Department 2"><?= htmlspecialchars($row['department2']) ?></td>
+                                <td data-label="Status"><?= htmlspecialchars($row['status']) ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
-</div>
 
-<!-- Scripts -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
-<script>
-    function showExportModal() {
-        $('#exportModal').modal('show');
-    }
+    <!-- Floating Export Button -->
+    <div class="export-btn" onclick="showExportModal()">Export</div>
 
-    $('#exportFormat').on('change', function() {
-        const format = $(this).val();
-        if (format === 'excel') {
-            $('#passwordCheck').prop('disabled', true).prop('checked', false);
-            $('#passwordField').hide();
-        } else {
-            $('#passwordCheck').prop('disabled', false);
+    <!-- Export Modal -->
+    <div class="modal fade" id="exportModal" tabindex="-1" aria-labelledby="exportModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="exportModalLabel">Export Options</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form method="POST" id="exportForm">
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label for="exportFormat" class="form-label">Export Format</label>
+                            <select class="form-select" id="exportFormat" name="export_format">
+                                <option value="pdf">PDF</option>
+                                <option value="excel">Excel</option>
+                            </select>
+                        </div>
+                        <div class="form-check mb-3">
+                            <input class="form-check-input" type="checkbox" id="passwordCheck" name="password_check">
+                            <label class="form-check-label" for="passwordCheck">Add Password Protection (PDF only)</label>
+                        </div>
+                        <div id="passwordField" class="mb-3" style="display: none;">
+                            <label for="passwordInput" class="form-label">Password</label>
+                            <input type="password" class="form-control" id="passwordInput" name="password">
+                        </div>
+                        <div class="form-check mb-3">
+                            <input class="form-check-input" type="checkbox" id="signatureCheck" name="signature_check">
+                            <label class="form-check-label" for="signatureCheck">Add Signatures</label>
+                        </div>
+                        <div id="signatureFields" style="display: none;">
+                            <label for="signatureCount" class="form-label">Number of Signatures</label>
+                            <input type="number" class="form-control mb-2" id="signatureCount" name="signature_count" min="1">
+                            <div id="signatureInputs"></div>
+                        </div>
+                        <input type="hidden" id="filteredData" name="filtered_data">
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                        <button type="submit" class="btn btn-primary" name="export">Export</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function filterTable() {
+            const filterValue = document.getElementById('departmentFilter').value.toLowerCase();
+            const table = document.getElementById('meritTable');
+            const rows = table.getElementsByTagName('tr');
+
+            for (let i = 1; i < rows.length; i++) { // Start from 1 to skip header
+                const dept1 = rows[i].getElementsByTagName('td')[15].textContent.toLowerCase(); // Department 1
+                const dept2 = rows[i].getElementsByTagName('td')[16].textContent.toLowerCase(); // Department 2
+                if (filterValue === '' || dept1 === filterValue || dept2 === filterValue) {
+                    rows[i].style.display = '';
+                } else {
+                    rows[i].style.display = 'none';
+                }
+            }
         }
-    });
 
-    $('#passwordCheck').on('change', function() {
-        $('#passwordField').toggle(this.checked);
-    });
+        function showExportModal() {
+            // Get the currently filtered data
+            const table = document.getElementById('meritTable');
+            const rows = table.getElementsByTagName('tr');
+            const filteredData = [];
 
-    $('#signatureCheck').on('change', function() {
-        $('#signatureFields').toggle(this.checked);
-        if (!this.checked) $('#signatureInputs').empty();
-    });
+            for (let i = 1; i < rows.length; i++) { // Start from 1 to skip header
+                if (rows[i].style.display !== 'none') {
+                    const cells = rows[i].getElementsByTagName('td');
+                    filteredData.push({
+                        sno: cells[0].textContent,
+                        studentFirstName: cells[1].textContent.split(' ')[0],
+                        studentLastName: cells[1].textContent.split(' ').slice(1).join(' '),
+                        sex: cells[2].textContent,
+                        community: cells[3].textContent,
+                        dob: cells[4].textContent,
+                        qualify: cells[5].textContent,
+                        yr_pass: cells[6].textContent,
+                        tamilMarks: cells[7].textContent,
+                        englishMarks: cells[8].textContent,
+                        mathsMarks: cells[9].textContent,
+                        scienceMarks: cells[10].textContent,
+                        socialScienceMarks: cells[11].textContent,
+                        otherLanguageMarks: cells[12].textContent,
+                        totalMarks: cells[13].textContent,
+                        average: parseFloat(cells[14].textContent),
+                        department1: cells[15].textContent,
+                        department2: cells[16].textContent,
+                        status: cells[17].textContent
+                    });
+                }
+            }
 
-    $('#signatureCount').on('change', function() {
-        const count = parseInt(this.value) || 0;
-        const container = $('#signatureInputs');
-        container.empty();
-        for (let i = 0; i < count; i++) {
-            container.append(`
-                <label class="form-label">Signature ${i + 1} Name</label>
-                <input type="text" class="form-control mb-2" name="signatures[]">
-            `);
+            // Set filtered data in hidden input
+            document.getElementById('filteredData').value = JSON.stringify(filteredData);
+            $('#exportModal').modal('show');
         }
-    });
-</script>
+
+        $('#exportFormat').on('change', function() {
+            const format = $(this).val();
+            if (format === 'excel') {
+                $('#passwordCheck').prop('disabled', true).prop('checked', false);
+                $('#passwordField').hide();
+            } else {
+                $('#passwordCheck').prop('disabled', false);
+            }
+        });
+
+        $('#passwordCheck').on('change', function() {
+            $('#passwordField').toggle(this.checked);
+        });
+
+        $('#signatureCheck').on('change', function() {
+            $('#signatureFields').toggle(this.checked);
+            if (!this.checked) $('#signatureInputs').empty();
+        });
+
+        $('#signatureCount').on('change', function() {
+            const count = parseInt(this.value) || 0;
+            const container = $('#signatureInputs');
+            container.empty();
+            for (let i = 0; i < count; i++) {
+                container.append(`
+                    <label class="form-label">Signature ${i + 1} Name</label>
+                    <input type="text" class="form-control mb-2" name="signatures[]">
+                `);
+            }
+        });
+    </script>
 </body>
 </html>

@@ -13,19 +13,21 @@ if (!isset($_SESSION['userId'])) {
     exit();
 }
 
-// Fetch departments with status
-$departmentQuery = "SELECT DISTINCT preferenceDepartment, department_status FROM preference";
+// Fetch unique department names where department_status is MGMT or GOVT only
+$departmentQuery = "SELECT DISTINCT preferenceDepartment, department_status 
+                    FROM preference 
+                    WHERE department_status IN ('MGMT', 'GOVT')";
 $departmentResult = $conn->query($departmentQuery);
 $departments = [];
 while ($dept = $departmentResult->fetch_assoc()) {
     $departments[$dept['preferenceDepartment']][] = $dept['department_status'];
 }
 
-// Initialize table structure
+// Initialize table structure for accepted statuses only (MGMT and GOVT)
 $tableData = [];
-foreach ($departments as $deptName => $statuses) {
+foreach ($departments as $department => $statuses) {
     foreach ($statuses as $status) {
-        $tableData[$deptName][$status] = [
+        $tableData[$department][$status] = [
             'shift' => 'First',
             'Tamil' => ['boys' => 0, 'girls' => 0],
             'Telugu' => ['boys' => 0, 'girls' => 0],
@@ -41,19 +43,19 @@ foreach ($departments as $deptName => $statuses) {
     }
 }
 
-// Fetch student data
+// Fetch student data for MGMT or GOVT statuses only
 $query = "SELECT p.preferenceDepartment, p.department_status, 
           sd.studentGender, sd.studentMotherTongue, COUNT(*) AS studentCount
           FROM studentdetails sd
           LEFT JOIN preference p ON sd.studentUserId = p.preferenceUserId
-          WHERE p.preferenceStatus = 'success'
+          WHERE p.preferenceStatus = 'success' AND p.department_status IN ('MGMT', 'GOVT')
           GROUP BY p.preferenceDepartment, p.department_status, sd.studentMotherTongue, sd.studentGender";
 $result = $conn->query($query);
 
-// Populate table data
+// Populate table data for accepted statuses only (MGMT or GOVT)
 while ($row = $result->fetch_assoc()) {
     $department = $row['preferenceDepartment'];
-    $status = $row['department_status'];
+    $status = $row['department_status']; // MGMT or GOVT only
     $motherTongue = $row['studentMotherTongue'];
     $gender = strtolower($row['studentGender']);
     $count = $row['studentCount'];
@@ -61,7 +63,7 @@ while ($row = $result->fetch_assoc()) {
     // Normalize gender values
     $gender = ($gender === 'male' || $gender === 'm') ? 'boys' : 'girls';
     
-    // Handle mother tongue categories
+    // Handle mother tongue categories, default to 'Others' if not listed
     if (!isset($tableData[$department][$status][$motherTongue])) {
         $motherTongue = 'Others';
     }
@@ -73,7 +75,7 @@ while ($row = $result->fetch_assoc()) {
     }
 }
 
-// Initialize totals
+// Initialize totals for bottom row
 $totals = [
     'Tamil' => ['boys' => 0, 'girls' => 0],
     'Telugu' => ['boys' => 0, 'girls' => 0],
@@ -87,7 +89,7 @@ $totals = [
     'side_total' => 0,
 ];
 
-// Calculate totals
+// Calculate totals for MGMT and GOVT only
 foreach ($tableData as $deptData) {
     foreach ($deptData as $statusData) {
         foreach ($statusData as $category => $values) {
@@ -100,7 +102,7 @@ foreach ($tableData as $deptData) {
     }
 }
 
-// Handle export
+// Handle export request
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
     require_once '../vendor/autoload.php';
 
@@ -135,17 +137,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
         $pdf->Cell(0, 5, 'INSTITUTION NAME: NACHIMUTHU POLYTECHNIC COLLEGE (AUT), COIMBATORE', 0, 1, 'C');
         $pdf->Ln(5);
 
-        // Table with 23 columns (S.No, Department, Type, Shift, 9 mother tongues with B/G, Total B/G, Overall Total)
         $html = '<table border="1" cellpadding="5"><thead><tr style="background-color: #2980b9; color: #ffffff;">';
         $columns = [
-            'S.No', 'Department', 'Type', 'Shift', 
-            'Tamil (B)', 'Tamil (G)', 'Telugu (B)', 'Telugu (G)', 
-            'Kannada (B)', 'Kannada (G)', 'Sowrashtra (B)', 'Sowrashtra (G)', 
-            'Malayalam (B)', 'Malayalam (G)', 'Hindi (B)', 'Hindi (G)', 
-            'Urdu (B)', 'Urdu (G)', 'Others (B)', 'Others (G)', 
-            'Total (B)', 'Total (G)', 'Overall Total'
+            'S.No', 'Department', 'Type', 'Shift', 'Tamil (B)', 'Tamil (G)', 'Telugu (B)', 'Telugu (G)', 
+            'Kannada (B)', 'Kannada (G)', 'Sowrashtra (B)', 'Sowrashtra (G)', 'Malayalam (B)', 'Malayalam (G)', 
+            'Hindi (B)', 'Hindi (G)', 'Urdu (B)', 'Urdu (G)', 'Others (B)', 'Others (G)', 'Total (B)', 'Total (G)', 
+            'Overall Total'
         ];
-        $colWidths = [6, 25, 10, 10, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8]; // 23 elements to match 23 columns
+        $colWidths = [6, 25, 10, 10, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8]; // 23 columns
         $totalWidth = array_sum($colWidths);
         $scaleFactor = 277 / $totalWidth; // Scale to fit 277mm
         $scaledWidths = array_map(fn($w) => $w * $scaleFactor, $colWidths);
@@ -156,11 +155,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
         $html .= '</tr></thead><tbody>';
 
         $serialNumber = 1;
-        foreach ($tableData as $dept => $statuses) {
+        foreach ($tableData as $department => $statuses) {
             foreach ($statuses as $status => $data) {
                 $html .= '<tr>';
                 $html .= "<td width=\"" . $scaledWidths[0] . "mm\" align=\"center\">{$serialNumber}</td>";
-                $html .= "<td width=\"" . $scaledWidths[1] . "mm\" align=\"center\">{$dept}</td>";
+                $html .= "<td width=\"" . $scaledWidths[1] . "mm\" align=\"center\">{$department}</td>";
                 $html .= "<td width=\"" . $scaledWidths[2] . "mm\" align=\"center\">{$status}</td>";
                 $html .= "<td width=\"" . $scaledWidths[3] . "mm\" align=\"center\">{$data['shift']}</td>";
                 $html .= "<td width=\"" . $scaledWidths[4] . "mm\" align=\"center\">{$data['Tamil']['boys']}</td>";
@@ -252,12 +251,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
         $sheet->setCellValue('A2', 'FORM D – (Admission Statistics - Mother Tongue)');
         $sheet->setCellValue('A3', 'INSTITUTION CODE: 212');
         $sheet->setCellValue('A4', 'INSTITUTION NAME: NACHIMUTHU POLYTECHNIC COLLEGE (AUT), COIMBATORE');
-        $sheet->mergeCells('A1:V1');
-        $sheet->mergeCells('A2:V2');
-        $sheet->mergeCells('A3:V3');
-        $sheet->mergeCells('A4:V4');
+        $sheet->mergeCells('A1:W1');
+        $sheet->mergeCells('A2:W2');
+        $sheet->mergeCells('A3:W3');
+        $sheet->mergeCells('A4:W4');
 
-        $sheet->getStyle('A1:V4')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+        $sheet->getStyle('A1:W4')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
 
         $drawing = new \PhpOffice\PhpSpreadsheet\Worksheet\Drawing();
         $drawing->setPath('./logo.png');
@@ -268,14 +267,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
         $drawing->setWorksheet($sheet);
 
         $columns = [
-            'S.No', 'Department', 'Type', 'Shift', 
-            'Tamil (B)', 'Tamil (G)', 'Telugu (B)', 'Telugu (G)', 
-            'Kannada (B)', 'Kannada (G)', 'Sowrashtra (B)', 'Sowrashtra (G)', 
-            'Malayalam (B)', 'Malayalam (G)', 'Hindi (B)', 'Hindi (G)', 
-            'Urdu (B)', 'Urdu (G)', 'Others (B)', 'Others (G)', 
-            'Total (B)', 'Total (G)', 'Overall Total'
+            'S.No', 'Department', 'Type', 'Shift', 'Tamil (B)', 'Tamil (G)', 'Telugu (B)', 'Telugu (G)', 
+            'Kannada (B)', 'Kannada (G)', 'Sowrashtra (B)', 'Sowrashtra (G)', 'Malayalam (B)', 'Malayalam (G)', 
+            'Hindi (B)', 'Hindi (G)', 'Urdu (B)', 'Urdu (G)', 'Others (B)', 'Others (G)', 'Total (B)', 'Total (G)', 
+            'Overall Total'
         ];
-        $colWidths = [6, 25, 10, 10, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8]; // 23 elements
+        $colWidths = [6, 25, 10, 10, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8]; // 23 columns
         $col = 'A';
         foreach ($columns as $idx => $column) {
             $sheet->setCellValue($col . '6', $column);
@@ -283,7 +280,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
             $col++;
         }
 
-        $sheet->getStyle('A6:V6')->applyFromArray([
+        $sheet->getStyle('A6:W6')->applyFromArray([
             'fill' => [
                 'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
                 'startColor' => ['rgb' => '2980B9'],
@@ -299,10 +296,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
 
         $rowNum = 7;
         $serialNumber = 1;
-        foreach ($tableData as $dept => $statuses) {
+        foreach ($tableData as $department => $statuses) {
             foreach ($statuses as $status => $data) {
                 $sheet->setCellValue('A' . $rowNum, $serialNumber);
-                $sheet->setCellValue('B' . $rowNum, $dept);
+                $sheet->setCellValue('B' . $rowNum, $department);
                 $sheet->setCellValue('C' . $rowNum, $status);
                 $sheet->setCellValue('D' . $rowNum, $data['shift']);
                 $sheet->setCellValue('E' . $rowNum, $data['Tamil']['boys']);
@@ -323,7 +320,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
                 $sheet->setCellValue('T' . $rowNum, $data['Others']['girls']);
                 $sheet->setCellValue('U' . $rowNum, $data['total']['boys']);
                 $sheet->setCellValue('V' . $rowNum, $data['total']['girls']);
-                $sheet->setCellValue('V' . $rowNum, $data['side_total']);
+                $sheet->setCellValue('W' . $rowNum, $data['side_total']);
                 $rowNum++;
                 $serialNumber++;
             }
@@ -350,9 +347,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
         $sheet->setCellValue('T' . $rowNum, $totals['Others']['girls']);
         $sheet->setCellValue('U' . $rowNum, $totals['total']['boys']);
         $sheet->setCellValue('V' . $rowNum, $totals['total']['girls']);
-        $sheet->setCellValue('V' . $rowNum, $totals['side_total']);
+        $sheet->setCellValue('W' . $rowNum, $totals['side_total']);
 
-        $sheet->getStyle('A' . $rowNum . ':V' . $rowNum)->applyFromArray([
+        $sheet->getStyle('A' . $rowNum . ':W' . $rowNum)->applyFromArray([
             'fill' => [
                 'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
                 'startColor' => ['rgb' => 'CCE5FF'],
@@ -372,18 +369,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
                 ],
             ],
         ];
-        $sheet->getStyle('A6:V' . $rowNum)->applyFromArray($styleArray);
+        $sheet->getStyle('A6:W' . $rowNum)->applyFromArray($styleArray);
 
         $rowNum += 2;
         if (!empty($signatures)) {
             $sigCount = count($signatures);
             $sigPositions = [];
             if ($sigCount === 1) {
-                $sigPositions = ['V'];
+                $sigPositions = ['W'];
             } elseif ($sigCount === 2) {
-                $sigPositions = ['B', 'V'];
+                $sigPositions = ['B', 'W'];
             } elseif ($sigCount >= 3) {
-                $sigPositions = ['B', 'L', 'V'];
+                $sigPositions = ['B', 'M', 'W'];
             }
 
             foreach ($signatures as $idx => $sig) {
@@ -402,7 +399,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
                 ],
             ],
         ];
-        $sheet->getStyle('A1:V' . $lastRow)->applyFromArray($borderStyle);
+        $sheet->getStyle('A1:W' . $lastRow)->applyFromArray($borderStyle);
 
         $writer = new Xlsx($spreadsheet);
         header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -418,14 +415,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Form D</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&family=Roboto:wght@400;500&display=swap" rel="stylesheet">
     <style>
+        /* Import Professional Fonts from Google Fonts */
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&family=Roboto:wght@400;500&display=swap');
+
         /* General Reset */
         body {
             font-family: 'Roboto', sans-serif;
-            background-color: #f4f6f9;
-            color: #333;
+            background: linear-gradient(135deg, #f0f4f8, #d9e2ec);
+            color: #2d3748;
             margin: 0;
             padding: 0;
             line-height: 1.6;
@@ -438,110 +440,243 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
             top: 0;
             left: 0;
             width: 250px;
-            background-color: #2c3e50;
-            color: #ecf0f1;
-            border-right: 1px solid #34495e;
-            box-shadow: 2px 0 5px rgba(0, 0, 0, 0.1);
+            background: linear-gradient(145deg, #4a90e2, #357abd);
+            color: #fff;
+            border-right: 1px solid #357abd;
+            box-shadow: 3px 0 15px rgba(0, 0, 0, 0.1);
             overflow-y: auto;
-            padding-top: 70px;
+            padding-top: 80px;
+            transition: transform 0.3s ease;
+        }
+
+        .sidebar h4 {
+            font-family: 'Poppins', sans-serif;
+            font-size: 1.6rem;
+            font-weight: 600;
+            color: #fff;
+            text-align: center;
+            padding: 1.2rem;
+            margin-bottom: 1.5rem;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
         }
 
         .sidebar a {
-            color: #bdc3c7;
+            color: #fff;
             text-decoration: none;
             padding: 15px 20px;
             display: block;
-            border-bottom: 1px solid #34495e;
             font-weight: 500;
-            transition: all 0.3s ease;
+            font-family: 'Roboto', sans-serif;
+            transition: background-color 0.3s ease, padding-left 0.3s ease;
         }
 
         .sidebar a:hover {
-            background-color: #34495e;
-            color: #1abc9c;
+            background-color: rgba(255, 255, 255, 0.2);
+            padding-left: 25px;
         }
 
-        /* Content Area */
-        .content {
-            margin-left: 250px;
-            padding: 30px;
-            margin-top: 70px;
-            background-color: #f4f6f9;
-            min-height: calc(100vh - 70px);
+        /* Mobile Sidebar (Off-Canvas) */
+        .mobile-menu-btn {
+            display: none;
+            position: fixed;
+            top: 75px;
+            left: 10px;
+            z-index: 1100;
+            background: linear-gradient(145deg, #4a90e2, #357abd);
+            border: 1px solid #357abd;
+            padding: 12px 18px;
+            border-radius: 6px;
+            color: #fff;
+            font-size: 1.1rem;
+            font-family: 'Roboto', sans-serif;
+            transition: background-color 0.3s ease, transform 0.3s ease;
+        }
+
+        .mobile-menu-btn:hover {
+            background: linear-gradient(145deg, #357abd, #2a6395);
+            transform: scale(1.05);
+        }
+
+        #mobileMenu {
+            position: fixed;
+            top: 0;
+            left: -250px;
+            width: 250px;
+            height: 100vh;
+            background: linear-gradient(145deg, #4a90e2, #357abd);
+            color: #fff;
+            box-shadow: 3px 0 15px rgba(0, 0, 0, 0.2);
+            z-index: 1050;
+            padding-top: 80px;
+            transition: left 0.3s ease;
+        }
+
+        #mobileMenu.show {
+            left: 0;
+        }
+
+        #mobileMenu a {
+            color: #fff;
+            text-decoration: none;
+            padding: 15px 20px;
+            display: block;
+            font-weight: 500;
+            font-family: 'Roboto', sans-serif;
+            transition: background-color 0.3s ease, padding-left 0.3s ease;
+        }
+
+        #mobileMenu a:hover {
+            background-color: rgba(255, 255, 255, 0.2);
+            padding-left: 25px;
         }
 
         /* Header Styles */
         .header {
-            background-color: #ffffff;
-            border-bottom: 1px solid #ddd;
-            padding: 10px 20px;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            background: linear-gradient(145deg, #4a90e2, #357abd);
+            border-bottom: 1px solid #357abd;
+            padding: 15px 25px;
+            box-shadow: 0 3px 15px rgba(0, 0, 0, 0.1);
             position: fixed;
             width: 100%;
             top: 0;
-            z-index: 1000;
+            z-index: 1100;
             display: flex;
             justify-content: space-between;
             align-items: center;
         }
 
         .header .title {
-            font-size: 24px;
-            color: #2c3e50;
+            font-family: 'Poppins', sans-serif;
+            font-size: 2rem;
             font-weight: 700;
+            color: #fff;
+            text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.2);
         }
 
         .header .logout-btn {
-            color: #ffffff;
-            background-color: #e74c3c;
+            background: linear-gradient(145deg, #e53e3e, #c53030);
             border: none;
-            padding: 10px 15px;
-            font-size: 14px;
-            border-radius: 5px;
-            transition: background-color 0.3s ease;
+            padding: 10px 20px;
+            font-size: 1rem;
+            font-family: 'Roboto', sans-serif;
+            font-weight: 500;
+            border-radius: 6px;
+            color: #fff;
+            transition: background-color 0.3s ease, transform 0.2s ease;
         }
 
         .header .logout-btn:hover {
-            background-color: #c0392b;
+            background: linear-gradient(145deg, #c53030, #9b2c2c);
+            transform: translateY(-2px);
         }
 
-        /* Table Styles */
-        .table {
-            margin-top: 20px;
-            border-collapse: collapse;
+        /* Content Area */
+        .content {
+            margin-left: 250px;
+            padding: 40px;
+            margin-top: 80px;
+            background: #fff;
+            min-height: calc(100vh - 80px);
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.05);
+            border-radius: 12px;
+        }
+
+        /* Headings */
+        h2, h4 {
+            font-family: 'Poppins', sans-serif;
+            color: #2d3748;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
+            letter-spacing: 0.5px;
+        }
+
+        h2 {
+            font-size: 2rem;
+            background: linear-gradient(90deg, #4a90e2, #63b3ed);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        h4 {
+            font-size: 1.5rem;
+            border-bottom: 2px solid #e2e8f0;
+            padding-bottom: 5px;
+        }
+
+        /* Buttons */
+        .btn-primary {
+            background: linear-gradient(145deg, #68d391, #48bb78);
+            border: none;
+            font-family: 'Roboto', sans-serif;
+            font-weight: 500;
+            padding: 12px 20px;
+            border-radius: 6px;
+            color: #fff;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            transition: background-color 0.3s ease, transform 0.2s ease, box-shadow 0.3s ease;
+        }
+
+        .btn-primary:hover {
+            background: linear-gradient(145deg, #48bb78, #38a169);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+        }
+
+        /* Enhanced Table Styling */
+        .table-wrapper {
             width: 100%;
-            background-color: #ffffff;
-            border-radius: 8px;
+            overflow-x: auto;
+            margin-bottom: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.05);
+            background: #fff;
+        }
+
+        .table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            background: #fff;
+            border-radius: 12px;
             overflow: hidden;
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
         }
 
         .table thead th {
-            background-color: #2980b9;
-            color: #ffffff;
-            text-align: center;
-            font-weight: 700;
-            padding: 15px;
-            border-bottom: 2px solid #1c5980;
+            background: linear-gradient(145deg, #68d391, #48bb78);
+            color: #fff;
+            text-align: left;
+            font-family: 'Poppins', sans-serif;
+            font-weight: 600;
+            padding: 15px 20px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 2px solid #38a169;
         }
 
         .table tbody tr {
-            transition: background-color 0.3s ease;
+            transition: background-color 0.3s ease, transform 0.2s ease;
         }
 
         .table tbody tr:nth-child(even) {
-            background-color: #f9f9f9;
+            background-color: #f7fafc;
         }
 
         .table tbody tr:hover {
-            background-color: #ecf0f1;
+            background-color: #edf2f7;
+            transform: translateY(-2px);
         }
 
         .table tbody td {
-            vertical-align: middle;
-            text-align: center;
-            padding: 12px;
-            border-bottom: 1px solid #ddd;
+            padding: 15px 20px;
+            border-bottom: 1px solid #e2e8f0;
+            font-family: 'Roboto', sans-serif;
+            font-weight: 400;
+            color: #4a5568;
+        }
+
+        .table tbody tr:last-child td {
+            border-bottom: none;
         }
 
         .table-primary td {
@@ -549,18 +684,58 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
             font-weight: bold;
         }
 
+        /* Floating Export Button */
+        .export-btn {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 12px 20px;
+            background: linear-gradient(145deg, #4a90e2, #357abd);
+            color: white;
+            border-radius: 6px;
+            cursor: pointer;
+            font-family: 'Roboto', sans-serif;
+            font-weight: 500;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            transition: background-color 0.3s ease, transform 0.2s ease;
+        }
+
+        .export-btn:hover {
+            background: linear-gradient(145deg, #357abd, #2a6395);
+            transform: translateY(-2px);
+        }
+
         /* Responsive Design */
         @media (max-width: 768px) {
             .sidebar {
-                position: relative;
-                height: auto;
-                width: 100%;
-                padding-top: 0;
+                position: fixed;
+                height: 100vh;
+                width: 250px;
+                transform: translateX(-100%);
+                transition: transform 0.3s ease;
+            }
+
+            .sidebar.active {
+                transform: translateX(0);
             }
 
             .content {
                 margin-left: 0;
-                margin-top: 100px;
+                margin-top: 80px;
+                padding: 20px;
+                border-radius: 8px;
+            }
+
+            .mobile-menu-btn {
+                display: block;
+            }
+
+            .header {
+                padding: 10px 15px;
+            }
+
+            .table-wrapper {
+                box-shadow: none;
             }
 
             .table {
@@ -591,11 +766,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
                 text-align: left;
                 font-weight: bold;
             }
+
+            h2 {
+                font-size: 1.5rem;
+            }
+
+            h4 {
+                font-size: 1.2rem;
+            }
+
+            .btn-primary, .export-btn {
+                padding: 10px 15px;
+            }
         }
     </style>
 </head>
 <body>
-    <?php include '../header_admin.php'; ?>
+    <div class="header">
+        <h1 class="title">Admin Dashboard</h1>
+        <a href="../logout.php" class="logout-btn">Logout</a>
+    </div>
 
     <!-- Sidebar for larger screens -->
     <nav class="sidebar d-none d-md-block">
@@ -633,70 +823,72 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export'])) {
             <h4 class="text-center">Admission Statistics - Mother Tongue (2024-2025)</h4>
             <p class="text-center">Form D</p>
             
-            <table class="table table-bordered">
-                <thead class="thead-dark">
-                    <tr>
-                        <th rowspan="2">S.No</th>
-                        <th rowspan="2">Department</th>
-                        <th rowspan="2">Type</th>
-                        <th rowspan="2">Shift</th>
-                        <th colspan="2">Tamil</th>
-                        <th colspan="2">Telugu</th>
-                        <th colspan="2">Kannada</th>
-                        <th colspan="2">Sowrashtra</th>
-                        <th colspan="2">Malayalam</th>
-                        <th colspan="2">Hindi</th>
-                        <th colspan="2">Urdu</th>
-                        <th colspan="2">Others</th>
-                        <th colspan="2">Total</th>
-                        <th rowspan="2">Overall Total</th>
-                    </tr>
-                    <tr>
-                        <th>B</th><th>G</th>
-                        <th>B</th><th>G</th>
-                        <th>B</th><th>G</th>
-                        <th>B</th><th>G</th>
-                        <th>B</th><th>G</th>
-                        <th>B</th><th>G</th>
-                        <th>B</th><th>G</th>
-                        <th>B</th><th>G</th>
-                        <th>B</th><th>G</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php $serial = 1; ?>
-                    <?php foreach ($tableData as $dept => $statuses): ?>
-                        <?php foreach ($statuses as $status => $data): ?>
-                            <tr>
-                                <td data-label="S.No"><?= $serial++ ?></td>
-                                <td data-label="Department"><?= $dept ?></td>
-                                <td data-label="Type"><?= $status ?></td>
-                                <td data-label="Shift"><?= $data['shift'] ?></td>
-                                <?php foreach (['Tamil', 'Telugu', 'Kannada', 'Sowrashtra', 'Malayalam', 'Hindi', 'Urdu', 'Others', 'total'] as $category): ?>
-                                    <td data-label="<?= $category ?> (B)"><?= $data[$category]['boys'] ?></td>
-                                    <td data-label="<?= $category ?> (G)"><?= $data[$category]['girls'] ?></td>
-                                <?php endforeach; ?>
-                                <td data-label="Overall Total"><?= $data['side_total'] ?></td>
-                            </tr>
+            <div class="table-wrapper">
+                <table class="table table-bordered table-striped" id="meritTable">
+                    <thead class="thead-dark">
+                        <tr>
+                            <th rowspan="2">S.No</th>
+                            <th rowspan="2">Department</th>
+                            <th rowspan="2">Type</th>
+                            <th rowspan="2">Shift</th>
+                            <th colspan="2">Tamil</th>
+                            <th colspan="2">Telugu</th>
+                            <th colspan="2">Kannada</th>
+                            <th colspan="2">Sowrashtra</th>
+                            <th colspan="2">Malayalam</th>
+                            <th colspan="2">Hindi</th>
+                            <th colspan="2">Urdu</th>
+                            <th colspan="2">Others</th>
+                            <th colspan="2">Total</th>
+                            <th rowspan="2">Overall Total</th>
+                        </tr>
+                        <tr>
+                            <th>B</th><th>G</th>
+                            <th>B</th><th>G</th>
+                            <th>B</th><th>G</th>
+                            <th>B</th><th>G</th>
+                            <th>B</th><th>G</th>
+                            <th>B</th><th>G</th>
+                            <th>B</th><th>G</th>
+                            <th>B</th><th>G</th>
+                            <th>B</th><th>G</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php $serial = 1; ?>
+                        <?php foreach ($tableData as $dept => $statuses): ?>
+                            <?php foreach ($statuses as $status => $data): ?>
+                                <tr>
+                                    <td data-label="S.No"><?= $serial++ ?></td>
+                                    <td data-label="Department"><?= $dept ?></td>
+                                    <td data-label="Type"><?= $status ?></td>
+                                    <td data-label="Shift"><?= $data['shift'] ?></td>
+                                    <?php foreach (['Tamil', 'Telugu', 'Kannada', 'Sowrashtra', 'Malayalam', 'Hindi', 'Urdu', 'Others', 'total'] as $category): ?>
+                                        <td data-label="<?= $category ?> (B)"><?= $data[$category]['boys'] ?></td>
+                                        <td data-label="<?= $category ?> (G)"><?= $data[$category]['girls'] ?></td>
+                                    <?php endforeach; ?>
+                                    <td data-label="Overall Total"><?= $data['side_total'] ?></td>
+                                </tr>
+                            <?php endforeach; ?>
                         <?php endforeach; ?>
-                    <?php endforeach; ?>
-                    
-                    <!-- Totals Row -->
-                    <tr class="table-primary">
-                        <td colspan="4" class="text-center" data-label="Total"><strong>Total</strong></td>
-                        <?php foreach (['Tamil', 'Telugu', 'Kannada', 'Sowrashtra', 'Malayalam', 'Hindi', 'Urdu', 'Others', 'total'] as $category): ?>
-                            <td data-label="<?= $category ?> (B)"><strong><?= $totals[$category]['boys'] ?></strong></td>
-                            <td data-label="<?= $category ?> (G)"><strong><?= $totals[$category]['girls'] ?></strong></td>
-                        <?php endforeach; ?>
-                        <td data-label="Overall Total"><strong><?= $totals['side_total'] ?></strong></td>
-                    </tr>
-                </tbody>
-            </table>
+                        
+                        <!-- Totals Row -->
+                        <tr class="table-primary">
+                            <td colspan="4" class="text-center" data-label="Total"><strong>Total</strong></td>
+                            <?php foreach (['Tamil', 'Telugu', 'Kannada', 'Sowrashtra', 'Malayalam', 'Hindi', 'Urdu', 'Others', 'total'] as $category): ?>
+                                <td data-label="<?= $category ?> (B)"><strong><?= $totals[$category]['boys'] ?></strong></td>
+                                <td data-label="<?= $category ?> (G)"><strong><?= $totals[$category]['girls'] ?></strong></td>
+                            <?php endforeach; ?>
+                            <td data-label="Overall Total"><strong><?= $totals['side_total'] ?></strong></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 
     <!-- Floating Export Button -->
-    <div class="export-btn" style="position: fixed; bottom: 20px; right: 20px; padding: 10px 20px; background-color: #3498db; color: white; border-radius: 5px; cursor: pointer;" onclick="showExportModal()">Export</div>
+    <div class="export-btn" onclick="showExportModal()">Export</div>
 
     <!-- Export Modal -->
     <div class="modal fade" id="exportModal" tabindex="-1" aria-labelledby="exportModalLabel" aria-hidden="true">
